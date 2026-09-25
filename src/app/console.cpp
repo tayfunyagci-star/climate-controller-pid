@@ -79,7 +79,7 @@ void printStatus() {
   Serial.printf("ag: %s  ssid='%s' ip=%s rssi=%d  AP=%s%s  mDNS=%s.local  OTA=%s  %s\n",
                 ns.sta_ok ? "BAGLI" : (ns.configured ? "BAGLANAMADI" : "KURULUM"), ns.ssid, ns.ip, ns.rssi,
                 ns.ap_mode ? ns.ap_name : "kapali", ns.ap_mode ? " (192.168.4.1, sifre etikette)" : "",
-                net::settings().mdns, ns.ota_ready ? "hazir" : (net::otaPasswordSet() ? "baglanti bekliyor" : "kapali (otapass)"),
+                net::settings().mdns, ns.ota_ready ? (net::otaPasswordSet() ? "hazir" : "hazir (PAROLASIZ)") : "baglanti bekliyor",
                 ns.note);
   Serial.printf("gorev yas(ms) saf=%lu out=%lu ctl=%lu sen=%lu | azami(us) %lu/%lu/%lu/%lu | kilit zaman asimi=%lu\n",
                 (unsigned long)ts.age_ms[0], (unsigned long)ts.age_ms[1], (unsigned long)ts.age_ms[2], (unsigned long)ts.age_ms[3],
@@ -104,7 +104,7 @@ void printHelp() {
       "  recovery              restart firtinasi sonrasi operator onayi\n"
       "  wifi <ssid> [parola]  Wi-Fi kaydet ve baglan (parola yazdirilmaz);  wifi clear -> kurulum AP'si\n"
       "  ntp <sunucu>          NTP sunucusu (varsayilan pool.ntp.org; 2. sunucu ag gecidi)\n"
-      "  otapass <parola>|clear  OTA parolasi (8-64; parolasiz OTA yok, D-17)\n"
+      "  otapass <parola>|clear  OTA parolasi (8-64; clear = parolasiz OTA, D-17)\n"
       "  ota                   OTA hazirligi: isitma durur, post-cool biter; sonra pio -t upload\n"
       "  reboot                guvenli yeniden baslatma\n"
 #ifdef CC_HIL
@@ -168,7 +168,7 @@ void execute(char* line) {
   } else if (!strcmp(c, "otapass") && argc >= 2) {
     const char* err = nullptr;
     const bool ok = net::setOtaPassword(!strcmp(argv[1], "clear") ? "" : argv[1], &err);
-    Serial.println(ok ? (strcmp(argv[1], "clear") ? "OTA parolasi kaydedildi (yalniz ozet saklanir)" : "OTA kapatildi") : err);
+    Serial.println(ok ? (strcmp(argv[1], "clear") ? "OTA parolasi kaydedildi (yalniz ozet saklanir)" : "OTA parolasi kaldirildi (OTA parolasiz acik)") : err);
     memset(g_line, 0, sizeof g_line);
   } else if (!strcmp(c, "ota")) {
     cc::CmdReply r;

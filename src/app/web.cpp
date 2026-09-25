@@ -20,7 +20,7 @@ namespace {
 WebServer g_srv(80);
 cc::Event g_ev[200];   // olay kopyası (yalnız NetTask)
 
-const char* kFwVersion = "0.2.4";
+const char* kFwVersion = "0.2.5";
 
 void headers(bool api) {
   g_srv.sendHeader("X-Content-Type-Options", "nosniff");
@@ -156,6 +156,8 @@ void handleData() {
   }
   d["time_valid"] = onoff(ns.clock_valid);
   d["password_set"] = false;       // web parolası F4
+  d["ota_password_set"] = net::otaPasswordSet();   // false: OTA parolasız açık → UI kalıcı uyarı
+  d["ota_ready"] = ns.ota_ready;
   fnum(d, "temperature", s.temperature, 1);
   fnum(d, "humidity", s.humidity, 1);
   d["temperature_quality"] = cc::name(s.temperature_quality);
@@ -470,6 +472,22 @@ void settingsPost() {
   replyJson(200, d);
 }
 
+// OTA parolası: ayrı form (Ayarlar › Erişim). "" = kaldır → OTA parolasız açık kalır (D-17, F2.5).
+// Yeni parola OTA sunucusu yeniden kurulunca (yeniden başlatmadan) geçerli olur.
+void handleOtaPassword() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  if (!b["password"].is<const char*>()) { replyMsg(400, "password alanı gerekli (boş = parolayı kaldır).", "otaPw"); return; }
+  const char* pw = b["password"].as<const char*>();
+  const char* err = nullptr;
+  if (!net::setOtaPassword(pw, &err)) { replyMsg(pw[0] ? 400 : 507, err, "otaPw"); return; }
+  JsonDocument d;
+  d["message"] = pw[0] ? "OTA parolası kaydedildi; yüklemede --auth gerekir." : "OTA parolası kaldırıldı; OTA parolasız açık.";
+  d["otaPasswordSet"] = pw[0] != 0;
+  replyJson(200, d);
+}
+
 void handleNetRetry() {
   if (!writeOk()) return;
   const net::Status ns = net::status();
@@ -677,6 +695,7 @@ void begin() {
   g_srv.on("/api/net/retry", HTTP_POST, handleNetRetry);
   g_srv.on("/api/net/finish", HTTP_POST, handleNetFinish);
   g_srv.on("/api/reboot", HTTP_POST, handleReboot);
+  g_srv.on("/api/ota/password", HTTP_POST, handleOtaPassword);
   g_srv.on("/api/events", HTTP_GET, handleEvents);
   g_srv.on("/api/alarms", HTTP_GET, handleAlarms);
   g_srv.on("/api/alarms/ack", HTTP_POST, handleAlarmAck);

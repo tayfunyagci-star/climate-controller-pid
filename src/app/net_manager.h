@@ -59,7 +59,7 @@ bool apply(const NetSettings& n, const char* ssid, const char* pass, const char*
 bool resetWifi(const char** err);      // kimlik silinir, statik kapanır, yeniden başlatmadan AP
 bool retryNow();                       // kayıtlı ağı hemen yeniden dene (SSID yoksa false)
 bool finishSetup();                    // devirdeki kurulum ağını kapat (devir yoksa false)
-bool setOtaPassword(const char* pw, const char** err);   // "" = kaldır (OTA kapanır, D-17)
+bool setOtaPassword(const char* pw, const char** err);   // "" = kaldır (OTA parolasız açık kalır, D-17)
 void requestReboot(uint32_t delay_ms); // yanıt gönderildikten sonra güvenli yeniden başlatma
 
 }  // namespace net

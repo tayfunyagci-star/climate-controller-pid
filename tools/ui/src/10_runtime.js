@@ -249,6 +249,7 @@ function renderGlobalNotices(st) {
     if (D.ap_mode && D.net_setup !== 'HANDOVER' && !(currentRoute === 'overview' && !setupCollapsed))
       list.push(['warn', (D.wifi_ssid ? 'Cihaz kayıtlı Wi-Fi ağına bağlanamadı; ' : 'Wi-Fi kurulumu tamamlanmadı; ') + 'kurulum ağı “' + (D.ap_name || 'SCADA_AP') + '” açık (' + (D.ap_ip || '192.168.4.1') + '). Ağ seçimi: Genel Bakış.']);
     if (D.net_note) list.push(['warn', D.net_note]);
+    if (D.ota_password_set === false) list.push(['warn', 'OTA parolasız açık: aynı ağdaki herkes firmware yükleyebilir. Ayarlar › Erişim › OTA parolası bölümünden parola belirleyin.']);
     if (D.password_set === false) list.push(['warn', 'Web parolası tanımlı değil. Ayarlar › Erişim bölümünden parola belirleyin.']);
   }
   const key = JSON.stringify(list);

@@ -306,3 +306,23 @@ Ayarlar tek form olarak bütün sekmeleri tek `POST /api/settings` ile gönderiy
 | UI (Playwright + sahte cihaz) | Ağ kaydı yalnız ağ alanlarını gönderir; MQTT taslağı korunur; MQTT'deki geçersiz alan ağ kaydını engellemez; başlıkta yeni ad; palet aç/kapat/seç; LED kaydı yalnız LED alanları; uyarı boşluğu 12 px; JS hatası yok |
 | Kartta WS2812B, HIL | **Yapılmadı** — kullanıcı makinesinde |
 
+## F2.5 — Parolasız OTA + web'den OTA parolası (25.09.2026)
+
+Kullanıcı kararı: parolasız OTA çalışsın; parola Ayarlar üzerinden tanımlanıp kaldırılabilsin; parolasız durum uyarı olarak görünsün. D-17 buna göre değişti.
+
+### Değişenler
+
+- `net_manager`: OTA, STA bağlıyken parola olmasa da başlar. OTA sunucusu `ArduinoOTAClass` örneği olarak her parola değişiminde yeniden kurulur. **Düzeltilen hata:** Arduino-ESP32 2.0.17'de `setPasswordHash` parola bir kez atandıktan sonra değişikliği yok sayıyordu; önceki sürümde parola değişimi/kaldırma yeniden başlatmaya kadar etkisizdi.
+- `web`: `POST /api/ota/password {password}` (`""` = kaldır, 8–64); `/api/data` `ota_password_set`, `ota_ready`.
+- UI: Erişim'de ayrı “OTA parolası” formu (yeni parola + tekrar, “OTA parolasını kaydet”, onaylı “Parolayı kaldır”), durum satırı ve panel uyarısı; parolasızken üstte kalıcı genel uyarı. OTA alanları Erişim bölüm formundan çıkarıldı (bölüm kaydı F4 alanlarına takılmasın). Bakım › Firmware'de “parola tanımlı değilse boş bırakın”.
+- Konsol: `otapass clear` parolasız OTA'ya döner; `status` parolasızken `OTA=hazir (PAROLASIZ)`.
+- Güvenli duruş değişmedi: her yüklemede ısıtma durur, soğutma biter; hazırlıksız yükleme iptal edilir.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| ESP32 derleme (xtensa gcc 8.4, Arduino-ESP32 2.0.17 başlıkları) | `net_manager`, `web`, `console` uyarısız; link yapılmadı |
+| UI (Playwright + sahte cihaz) | Parolasız uyarı (üst + panel), kısa parola reddi, kaydet → uyarı kalkar, kaldır (onay) → uyarı döner; F2.4 akışları tekrar geçti |
+| Kartta parolasız/parolalı espota yüklemesi | **Yapılmadı** |
+

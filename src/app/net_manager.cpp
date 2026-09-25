@@ -36,6 +36,9 @@ bool g_ota_reload = false;                     // OTA parolası değişti → Ar
 cc::NetFsm g_fsm;
 DNSServer g_dns;
 bool g_ap = false, g_services = false, g_ota_started = false;
+// OTA sunucusu parola değişiminde yeniden oluşturulur: ArduinoOTAClass parolayı bir kez aldıktan sonra
+// setPasswordHash ile değiştirmez/silmez (2.0.17). Tek sahip NetTask.
+ArduinoOTAClass* g_ota_srv = nullptr;
 char g_gw[16] = "";
 char g_ntp_buf[64] = "pool.ntp.org";
 std::atomic<bool> g_synced{false};
@@ -122,12 +125,21 @@ void startSntp() {
   sntp_init();
 }
 
+void stopOta() {
+  if (g_ota_srv) { g_ota_srv->end(); delete g_ota_srv; g_ota_srv = nullptr; }
+  g_ota_started = false;
+}
+
+// D-17 (F2.5): OTA parolasız da açıktır; parola Ayarlar › Erişim'den tanımlanır/kaldırılır, parolasız durum
+// UI'da kalıcı uyarıdır. Yükleme her durumda güvenli duruş (OTA_PREP) ister.
 void startOta(const char* host, const char* hash) {
-  if (g_ota_started || !hash[0]) return;       // D-17: parolasız OTA yok
-  ArduinoOTA.setHostname(host);
-  ArduinoOTA.setPasswordHash(hash);
-  ArduinoOTA.setMdnsEnabled(false);             // mDNS'i biz yönetiyoruz
-  ArduinoOTA.onStart([]() {
+  if (g_ota_started) return;
+  g_ota_srv = new ArduinoOTAClass();
+  ArduinoOTAClass& o = *g_ota_srv;
+  o.setHostname(host);
+  if (hash[0]) o.setPasswordHash(hash);
+  o.setMdnsEnabled(false);                      // mDNS'i biz yönetiyoruz
+  o.onStart([]() {
     bool ready = false;
     if (app::coreLock(200)) {
       app::core().otaBegin(cc::CmdSource::LOCAL_SERVICE);   // güvenli duruş: OTA_PREP → ısıtma/post-cool biter → OTA
@@ -141,18 +153,18 @@ void startOta(const char* host, const char* hash) {
     }
     note(cc::Severity::WARNING, cc::EvCode::OTA_START, cc::CmdSource::LOCAL_SERVICE);
   });
-  ArduinoOTA.onError([](ota_error_t e) {
+  o.onError([](ota_error_t e) {
     if (app::coreLock(200)) { app::core().otaAbort(); app::coreUnlock(); }
     note(cc::Severity::WARNING, cc::EvCode::OTA_FAIL, cc::CmdSource::LOCAL_SERVICE, (float)e);
   });
-  ArduinoOTA.begin();
+  o.begin();
   g_ota_started = true;
 }
 
 void apply(const cc::NetActions& a, const NetSettings& n, const char* ssid, const char* pass, const char* ota,
            const char* ap_name) {
   if (a.stop_services && g_services) {
-    if (g_ota_started) { ArduinoOTA.end(); g_ota_started = false; }
+    stopOta();
     MDNS.end();
     g_services = false;
   }
@@ -257,7 +269,7 @@ void netTask(void*) {
         release = g_release;
         g_release = false;
       }
-      if (ota_reload && g_ota_started) { ArduinoOTA.end(); g_ota_started = false; }
+      if (ota_reload) stopOta();
       if (ota_reload && g_services) startOta(n.mdns, ota);
       strncpy(g_ntp_buf, n.ntp, sizeof g_ntp_buf - 1);
       if (reconnect) g_fsm.requestReconnect();
@@ -308,7 +320,7 @@ void netTask(void*) {
     }
     if (g_ap) g_dns.processNextRequest();
     web::handle();
-    if (g_ota_started) ArduinoOTA.handle();
+    if (g_ota_srv) g_ota_srv->handle();
     bool reboot;
     uint32_t at;
     { Lock l; reboot = g_reboot; at = g_reboot_at; }

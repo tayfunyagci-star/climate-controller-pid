@@ -161,7 +161,7 @@ Skill kataloğu (scada-ui-design §8.4 Ağ): `adN`→`device_display_name`, `mdn
 | `session_hours` / `remember_days` | i | 8 / 14 | |
 | `service_pin_hash` | x | tanımsız → servis modu kapalı | |
 | `local_lock_max_min` | i | 1440 | |
-| `ota_password_hash` | x | tanımsız → OTA kapalı | **DESIGN DECISION:** Bu cihazda parolasız OTA varsayılanı yok (rezistans yükü) |
+| `ota_password_hash` | x | tanımsız → OTA parolasız açık (uyarı) | Kullanıcı kararı 25.09.2026 (F2.5): parolasız OTA çalışır, parola Ayarlar › Erişim'den tanımlanır/kaldırılır; rezistans yükü için güvenli duruş her yüklemede zorunlu |
 
 ### 2.11 Diagnostics
 

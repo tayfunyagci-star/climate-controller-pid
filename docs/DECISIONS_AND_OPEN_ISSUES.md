@@ -32,7 +32,7 @@
 | D-14 | `remote_config_enabled`, servis kanalı, `pid_remote_tuning` varsayılan kapalı | CONFIGURATION_MODEL |
 | D-15 | Güç dönüşünde mod persist (AUTO) | SYSTEM_ARCHITECTURE §5 |
 | D-16 | Kilitli alarmlar reboot'ta korunur | ALARM_AND_EVENTS §3 |
-| D-17 | Parolasız OTA yok | CONFIGURATION_MODEL §2.10 |
+| D-17 | ~~Parolasız OTA yok~~ → **F2.5:** parolasız OTA açık, kalıcı uyarı; parola web'den tanımlanır/kaldırılır (kullanıcı kararı) | CONFIGURATION_MODEL §2.10 |
 | D-18 | `controller_enable=OFF` yalnız yerel | ENTITY_MODEL §1 |
 | D-19 | `sched_*` istekleri `sched_timeout_h` ile kendiliğinden düşer | CONTROL_ARCHITECTURE §3.3 |
 | D-20 | Boot sonrası `heater_was_on` ise post-cool | OUTPUT_AND_INTERLOCKS §6 |

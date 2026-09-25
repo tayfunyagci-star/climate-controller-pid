@@ -111,10 +111,7 @@ const DEF = {
     ['Erişim', [
       ['user', 'Web kullanıcı adı', 'text', {req: 1, ml: 32}],
       ['guestRead', 'Misafirler durum okuyabilir', 'checkbox'],
-      ['session_hours', 'Oturum süresi (sa)', 'number', {min: 1, max: 24}]]],
-    ['OTA parolası', [
-      ['otaPw', 'Yeni OTA parolası', 'password', {minl: 8, ml: 64, off: 'clearOtaPassword', hint: 'Bu cihazda parolasız OTA kapalıdır; parola tanımlanmadan güncelleme yapılamaz. Yalnız özet saklanır.'}],
-      ['clearOtaPassword', 'OTA parolasını kaldır (OTA kapanır)', 'checkbox', {ui: 1}]]]],
+      ['session_hours', 'Oturum süresi (sa)', 'number', {min: 1, max: 24}]]]],
   maint: []
 };
 const SECTIONS = [['net', 'Ağ', 'wifi'], ['mqtt', 'MQTT', 'antenna'], ['io', 'Sensörler', 'sensor'], ['ctrl', 'Kontrol', 'sliders'],
@@ -452,8 +449,42 @@ builders.settings = sec => {
 
   // ---- Erişim: ayrı formlar
   function renderAccessExtras(p, d) {
-    const ota = h('p', {class: 'field-hint'}, 'OTA parolası durumu: ', h('b', {id: 'ota-state', text: d.otaPasswordSet ? 'Tanımlı · OTA açık' : 'Tanımlı değil · OTA kapalı'}));
-    p.children[1] && p.children[1].append(ota);
+    // OTA parolası: ayrı form (POST /api/ota/password). Parolasız OTA açıktır ama kalıcı uyarıdır.
+    let otaSet = !!d.otaPasswordSet;
+    const otaState = h('b', {id: 'ota-state'});
+    const otaWarn = h('div', {class: 'notice warn', id: 'ota-warn'}, icon('warn'),
+      h('span', {text: 'OTA parolasız açık: aynı ağdaki herkes bu cihaza firmware yükleyebilir. Parola belirlemeniz önerilir.'}));
+    const otaMsg = h('div', {class: 'cmd-msg'});
+    const oa = h('input', {type: 'password', id: 'ota-new', minlength: '8', maxlength: '64', autocomplete: 'new-password'});
+    const ob = h('input', {type: 'password', id: 'ota-new2', minlength: '8', maxlength: '64', autocomplete: 'new-password'});
+    const otaSave = h('button', {type: 'submit', class: 'primary', 'data-icon': 'key', 'data-text': ''}, 'OTA parolasını kaydet');
+    const otaClear = h('button', {type: 'button', class: 'danger', id: 'ota-clear', 'data-icon': 'unlock', 'data-text': ''}, 'Parolayı kaldır');
+    const paintOta = () => {
+      setText(otaState, otaSet ? 'Tanımlı · yüklemede parola (--auth) gerekir' : 'Tanımlı değil · OTA parolasız açık');
+      otaState.className = otaSet ? '' : 'warn-text';
+      otaWarn.hidden = otaSet;
+      otaClear.disabled = !otaSet;
+    };
+    const otaDone = (set, r) => {
+      otaSet = set; paintOta(); oa.value = ''; ob.value = ''; showMsg({msg: otaMsg}, null, '');
+      if (D) { D.ota_password_set = set; renderShell(); }
+      toast(r && r.message || 'Kaydedildi');
+    };
+    const otaForm = h('form', {class: 'form-grid', novalidate: ''},
+      h('div', {class: 'field'}, h('label', {for: 'ota-new', text: 'Yeni OTA parolası (8–64)'}), oa),
+      h('div', {class: 'field'}, h('label', {for: 'ota-new2', text: 'Yeni OTA parolası tekrar'}), ob),
+      h('div', {class: 'full btn-row'}, otaSave, otaClear), h('div', {class: 'full'}, otaMsg));
+    otaForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (oa.value.length < 8 || oa.value.length > 64) { showMsg({msg: otaMsg}, 'critical', 'OTA parolası 8–64 karakter olmalı.'); oa.focus(); return; }
+      if (oa.value !== ob.value) { showMsg({msg: otaMsg}, 'critical', 'Parolalar eşleşmiyor.'); ob.focus(); return; }
+      try { otaDone(true, await api('/api/ota/password', {password: oa.value})); } catch (err) { showMsg({msg: otaMsg}, 'critical', err.message); }
+    });
+    otaClear.addEventListener('click', async () => {
+      if (!(await confirmDlg('OTA parolası', 'OTA parolası kaldırılsın mı? OTA parolasız açık kalır; aynı ağdaki herkes firmware yükleyebilir.', 'Parolayı kaldır', true))) return;
+      try { otaDone(false, await api('/api/ota/password', {password: ''})); } catch (err) { showMsg({msg: otaMsg}, 'critical', err.message); }
+    });
+    paintOta();
     const pw = [['pw-old', 'Mevcut parola', 'current-password'], ['pw-new', 'Yeni parola', 'new-password'], ['pw-new2', 'Yeni parola tekrar', 'new-password']]
       .map(([id, l, ac]) => h('div', {class: 'field'}, h('label', {for: id, text: l}), h('input', {type: 'password', id, maxlength: '128', autocomplete: ac})));
     const pwMsg = h('div', {class: 'cmd-msg'});
@@ -479,7 +510,10 @@ builders.settings = sec => {
       if (!pin.checkValidity() || !pin.value) { pin.reportValidity(); return; }
       try { await api('/api/service/pin', {pin: pin.value}); pin.value = ''; toast('Servis PIN’i kaydedildi'); } catch (err) { showMsg({msg: pinMsg}, 'critical', err.message); }
     });
-    p.append(h('section', {class: 'panel'}, h('h3', {text: 'Web parolası'}),
+    p.append(h('section', {class: 'panel'}, h('h3', {text: 'OTA parolası'}), otaWarn,
+      h('p', {class: 'field-hint'}, 'Durum: ', otaState),
+      h('p', {class: 'field-hint', text: 'Parola tanımlanır tanımlanmaz geçerli olur (yeniden başlatma gerekmez); yalnız özeti saklanır. Yükleme aracında --auth=<parola> kullanın. Her durumda yüklemeden önce ısıtma durdurulup soğutma tamamlanır.'}), otaForm),
+      h('section', {class: 'panel'}, h('h3', {text: 'Web parolası'}),
       h('p', {class: 'field-hint', text: 'Web parolası OTA parolasından ve servis PIN’inden bağımsızdır. Bağlantı şifrelenmez (yerel HTTP).'}), pwForm),
       h('section', {class: 'panel'}, h('h3', {text: 'Servis PIN’i'}), pinForm));
   }
@@ -533,7 +567,7 @@ builders.settings = sec => {
       h('p', {class: 'field-hint', text: 'Yeni ağ seçildiğinde cihaz yeniden başlamadan geçiş yapar ve bu sayfayla bağlantı kesilir. Bağlanamazsa 20–40 sn sonra kurulum ağı açılır ve kayıtlı ağ 5 dakikada bir yeniden denenir.'}),
       h('h4', {class: 'group-heading', text: 'Firmware'}),
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile),
-        h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw),
+        h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw, h('small', {class: 'field-hint', text: 'Parola tanımlı değilse boş bırakın.'})),
         h('div', {class: 'full btn-row'}, otaBtn)),
       h('h4', {class: 'group-heading', text: 'Sayaçlar ve cihaz'}),
       h('div', {class: 'btn-row'}, cnt, cntBtn),

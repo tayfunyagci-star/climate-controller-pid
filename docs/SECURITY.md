@@ -10,7 +10,7 @@
 | CSRF (tarayıcıdaki başka sayfa) | Yetkisiz komut | `SameSite=Strict` + `X-SCADA: 1` + Origin kontrolü |
 | Broker'a erişen herhangi istemci | `/set` komutları | Broker kimlik doğrulama + ACL (§3), `remote_config_enabled=false`, servis kanalı kapalı |
 | Programs/Kurallar yanlış yapılandırma | Uzun ısıtma | Safety limitleri uzaktan yazılamaz; R1/R2 doğrudan kumandası yok |
-| OTA ile kötü firmware | Tam kontrol | OTA parolası zorunlu (varsayılan kapalı), metadata/uyumluluk kontrolü; imza FUTURE |
+| OTA ile kötü firmware | Tam kontrol | OTA parolası önerilir; parolasız durumda web'de kalıcı uyarı (D-17, F2.5). Her yüklemede güvenli duruş (OTA_PREP); metadata/uyumluluk kontrolü; imza FUTURE |
 | Sır sızıntısı (yedek, tanı, GET) | Kimlik ele geçirme | Sırlar hiçbir çıkışta yok |
 | Fiziksel erişim | Flash okuma | v1 kapsam dışı; FUTURE: flash encryption + secure boot |
 

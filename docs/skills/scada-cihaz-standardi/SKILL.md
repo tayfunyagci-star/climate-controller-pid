@@ -26,7 +26,8 @@ Birden çok alana dokunan işte ilgili bütün belgeleri oku. Çelişkide: cihaz
 4. **Kaydedildi ≠ bağlandı.** Ağ kaydı yanıtı bağlantı başarısı değildir; sonuç cihaz kanıtıyla (deneme sayacı, sonuç, IP) gösterilir.
 5. Yerel proses ağdan bağımsızdır; LED, ağ ve flash işi proses bütçesini tüketmez; HTTP/MQTT handler'ı çıkışı veya LED'i doğrudan sürmez.
 6. Üst çubuk ile genel uyarı çerçeveleri arasında boşluk bırakılır (12 px).
-7. Olmayan özelliği yapılmış gibi raporlama; yapılmayan build/test/HIL adımını açıkça yaz.
+7. **OTA parolasız da çalışır; parolasız durum kalıcı uyarıdır.** Parola Ayarlar › Erişim'deki ayrı formdan tanımlanır veya onayla kaldırılır; değişiklik mümkünse yeniden başlatmadan geçerli olur. Yüklemeden önce güvenli duruş her durumda zorunludur.
+8. Olmayan özelliği yapılmış gibi raporlama; yapılmayan build/test/HIL adımını açıkça yaz.
 
 ## Tamamlanma
 

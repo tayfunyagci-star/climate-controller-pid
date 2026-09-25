@@ -13,14 +13,14 @@ Arayüz MQTT'den bağımsızdır; yalnız cihazın REST uçlarını kullanır. G
 | Kanal/nesne | 4 çıkış (R1, R2, HF, VF), 1–2 sıcaklık, 1 nem |
 | Canlı veri | `GET /api/data` 1 s, `STALE_MS=4000`, `CONFIRM_MS=5000` |
 | Tema | Koyu + açık, `scada-tema` tercih anahtarı |
-| Programlar sayfası | **Yok (v1)** — zamanlama Suite Programs'tadır; yerel haftalık program FUTURE |
+| Programlar sayfası | **Var** (`/programs`, ADR-009): haftalık zaman çizelgesi, program listesi, düzenleyici; Suite Programs `sched_*` yolu korunur |
 | LED ayar bölümü | Donanım seçilirse; aksi hâlde bölüm yok |
 
 ### 1.1 Skill'den bilinçli sapmalar
 
 | Skill kuralı | Bu cihazda | Gerekçe |
 |---|---|---|
-| Menü 6 öğe (Kontrol, Programlar, Alarmlar, Denetim, Ayarlar, Oturum), mobil 3×2 | 8 öğe; mobil **4×2**; "Denetim" → "Olaylar" | Görev tanımı Overview/Trends/Outputs ayrı ekranları istiyor; Programlar yerelde yok. 4×2 ızgarada öğe ≥ 44 px korunur |
+| Menü 6 öğe (Kontrol, Programlar, Alarmlar, Denetim, Ayarlar, Oturum), mobil 3×2 | 9 öğe; ≤ 1000 px ve mobil **3×3**; "Denetim" → "Olaylar" | Görev tanımı Overview/Trends/Outputs ayrı ekranları istiyor; Programlar ADR-009 ile eklendi. 3×3 ızgarada öğe ≥ 44 px korunur |
 | Ayarlarda 7 standart bölüm | 8 bölüm: `net`, `mqtt`, `io`→**Sensörler**, **`ctrl` Kontrol** (eklenti), `safety`, `led` (koşullu), `access`, `maint` | Skill "ek modül io ile safety arasına kendi sekmesi" kuralı |
 | Kontrol kartları 4 sütun | Genel Bakış'ta proses paneli + 4 çıkış kartı | Kanal sayısı 4 |
 
@@ -52,7 +52,7 @@ flowchart LR
 ## 3. Kabuk
 
 - **Başlık** (lacivert bant): üst etiket `SCALE · İKLİM KONTROL`, cihaz adı (`h1`, 14 px Mono), bilgi + tema ikon düğmeleri. Kimlik şeridi: `IP · kulube-iklim.local · İstemci IP · FW 1.0.0 · r12`.
-- **Menü**: 8 öğe, ikon 16 px + Mono 12 px; ikonlar: gösterge (Genel Bakış), termometre (Kontrol), çizgi grafik (Trendler), power (Çıkışlar), çan (Alarmlar), belge (Olaylar), ayar (Ayarlar), kullanıcı (Oturum). Masaüstü 8 eşit sütun (dar masaüstünde ≤ 1000 px 4×2).
+- **Menü**: 9 öğe, ikon 16 px + Mono 12 px; ikonlar: gösterge (Genel Bakış), termometre (Kontrol), takvim (Programlar), çizgi grafik (Trendler), power (Çıkışlar), çan (Alarmlar), belge (Olaylar), ayar (Ayarlar), kullanıcı (Oturum). Masaüstü 9 eşit sütun (≤ 1000 px ve telefonda 3×3).
 - **Durum çubuğu**: `● Canlı · şimdi`, haplar `Wi-Fi · Hazır`, `MQTT · Hazır`, `Keşif · Yayımlandı`, `Sensör · İyi`, `Saat · Eşitli`. Her hap metin + ikon; renk tek anlam taşıyıcı değildir.
 - **Genel uyarılar** (`main` başı): bayat veri (kritik, `role=alert`), `FAILSAFE` (kritik, nedenle), `SERVICE` modu etkin (uyarı, kalan süre), parola tanımsız (uyarı), AP kurulum modu, `controller_enable=OFF` (kritik: "Donma koruması dahil otomatik kontrol kapalı").
 - **Sistem durumu** `<details>`: uptime, free/min heap, en uzun kontrol döngüsü, reset nedeni, boots/faultBoots, RSSI, MQTT yeniden bağlanma, sensör hata oranı.
@@ -144,6 +144,10 @@ Sekmeler (`tablist`): **İklim**, **Profiller**, **Havalandırma**, **PID**.
 | PID | Canlı `pid_error`, P/I/D katkıları (yatay çubuk), `pid_output` vs `heat_demand`, doyum ve anti-windup rozetleri, kademe; katsayı formu (Kp, Ki, Kd, mod, deadband, rampa) | Katsayı formu (yönetici; "Uygula" ile, bumpless notu) |
 
 PID formu kaydet çubuğu sözleşmesine (skill §8.6) uyar; kaydetmeden önce özet diyaloğu: "Kp 20 → 25. Çıkış anında sabit kalır (bumpless). Uygulansın mı?"
+
+## 5b. Programlar (`/programs`)
+
+Ayrıntı: [PROGRAMS.md](PROGRAMS.md). Paneller: **Şu an** (iklim ve havalandırma programı, bitiş, sonraki değişim, etkin hedef; “Etkin programı atla” onay diyaloğuyla), **Modül** (`programs_enabled`, öncelik açıklaması, cihaz saati), **Bu hafta** (Pzt–Paz × 00–24 SVG çizelge; eylem rengi + etiket, havalandırma alt şerit, şimdi çizgisi, etkin oluşum vurgusu; telefonda yatay kaydırma), **Program listesi** (kart: tür rozeti, ad, zaman, eylem; düzenle/duraklat/sil). Düzenleyici native `<dialog>`: tekrar türü, günler + hızlı seçim, tarih(ler), bitiş türü (saat/süre/tüm gün), eylem, hedef/profil, canlı özet. Liste bütünüyle `POST /api/programs` ile atomik gönderilir; hata `{code, index}` Türkçe metne çevrilir. Saat geçersizse uyarı: “Saat bekleniyor: programlar çalışmaz”.
 
 ## 6. Çıkışlar (`/outputs`) ve requested/effective gösterimi
 
@@ -262,6 +266,7 @@ Onay, `seq ≥ 18245` olan `/api/data`'da istek alanının istenen değere eşit
 | `/api/service/*` | POST | Yönetici + servis oturumu | Test, kalibrasyon, sayaç reset |
 | `/api/ota` | POST | Yönetici + OTA parolası | |
 | `/api/password`, `/api/question`, `/api/login`, `/api/logout` | POST | Skill §8.5 | |
+| `/api/programs` | GET / POST | Kullanıcı / yönetici | Program listesi + etkin durum; POST tüm liste atomik (PROGRAMS §5.1) |
 
 Bütün yazma uçları `X-SCADA: 1` + `SameSite=Strict` çerez; `Cache-Control: no-store`.
 

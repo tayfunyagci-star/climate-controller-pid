@@ -86,6 +86,17 @@ void ClimateCore::log(Severity s, EvSrc src, EvCode code, float val, CmdSource a
   ev_.push(e);
 }
 
+// ---------------- Saat ----------------
+void ClimateCore::setClock(bool valid, int64_t epoch_utc) {
+  time_valid_ = valid;
+  if (!valid) return;
+  epoch_utc_ = epoch_utc;
+  const int64_t lm = localMinutes();
+  const int32_t day = (int32_t)(lm >= 0 ? lm / 1440 : (lm - 1439) / 1440);
+  if (last_local_day_ != INT32_MIN && day != last_local_day_) day_rollover_ = true;
+  last_local_day_ = day;
+}
+
 // ---------------- Sensör ----------------
 void ClimateCore::feedT1(DrvStatus st, float raw) {
   t1f_.sample(st, raw, 0, chain_.heating());
@@ -173,6 +184,29 @@ void ClimateCore::controlStep(uint32_t dt) {
   pin.t1 = t1.value;
   pin.t1_quality = t1.quality;
   pin.dt_ms = dt;
+  // Yerel programlar: saat geçerli ve modül etkinse durumsuz değerlendirme (ADR-009)
+  {
+    const ScheduleResult prev = sched_;
+    if (time_valid_ && progs_enabled_ && nprog_) sched_ = evaluate(progs_, nprog_, localMinutes(), hold_);
+    else sched_ = ScheduleResult();
+    if (prev.climate.index != sched_.climate.index || prev.climate.start != sched_.climate.start) {
+      if (prev.climate.index >= 0) log(Severity::INFO, EvSrc::CONTROLLER, EvCode::PROGRAM_END, (float)prev.climate.index);
+      if (sched_.climate.index >= 0) log(Severity::INFO, EvSrc::CONTROLLER, EvCode::PROGRAM_START, (float)sched_.climate.index);
+    }
+    if (prev.vent.index != sched_.vent.index || prev.vent.start != sched_.vent.start) {
+      if (prev.vent.index >= 0) log(Severity::INFO, EvSrc::CONTROLLER, EvCode::PROGRAM_END, (float)prev.vent.index);
+      if (sched_.vent.index >= 0) log(Severity::INFO, EvSrc::CONTROLLER, EvCode::PROGRAM_START, (float)sched_.vent.index);
+    }
+    if (sched_.climate.index >= 0) {
+      const Program& p = progs_[sched_.climate.index];
+      pin.program = true;
+      pin.program_action = p.action == ProgAction::SETPOINT ? ProgramActionIn::SETPOINT
+                           : p.action == ProgAction::PROFILE ? ProgramActionIn::PROFILE
+                                                             : ProgramActionIn::HEATING_OFF;
+      pin.program_setpoint = p.setpoint;
+      pin.program_profile = p.profile;
+    }
+  }
   const ProfileOutput po = prof_.step(cfg_, pin);
   if (po.ev_boost_ended) log(Severity::INFO, EvSrc::CONTROLLER, EvCode::BOOST_END);
   if (po.ev_sched_night_expired) log(Severity::INFO, EvSrc::CONTROLLER, EvCode::SCHEDULE_REQUEST_EXPIRED, 0);
@@ -197,7 +231,9 @@ void ClimateCore::controlStep(uint32_t dt) {
   DemandSource src = DemandSource::NONE;
   HeatingReason hr = HeatingReason::NONE;
   if (base) {
-    if (cfg_.operating_mode == OpMode::AUTO) {
+    if (cfg_.operating_mode == OpMode::AUTO && po.heat_suspend) {
+      if (antifreeze_) { src = DemandSource::PID; hr = HeatingReason::ANTIFREEZE; }  // program ısıtmayı durdurur, donma koruması sürer
+    } else if (cfg_.operating_mode == OpMode::AUTO) {
       src = DemandSource::PID;
       hr = po.source == SetpointSource::ANTIFREEZE ? HeatingReason::ANTIFREEZE
            : po.active == ProfileActive::BOOST     ? HeatingReason::BOOST
@@ -272,6 +308,7 @@ void ClimateCore::controlStep(uint32_t dt) {
                                    so.reason == FailsafeReason::INTERNAL_FAULT);
   vi.uptime_s = up_ms_ / 1000u;
   vi.vf_effective = il_.last().eff[VF];
+  vi.program_vent = sched_.vent.index >= 0;
   const VentOutput vo = vent_.step(cfg_, vi);
   if (vo.ev_manual_timeout) log(Severity::INFO, EvSrc::CONTROLLER, EvCode::MANUAL_VENT_TIMEOUT);
 
@@ -588,6 +625,8 @@ CmdReply ClimateCore::applyConfig(const Config& cand, CmdSource src) {
     const CmdResult r = vr.errors[0].rule == 0 ? CmdResult::REJECTED_INVALID : CmdResult::REJECTED_RELATION;
     return cmdLog(reply(r, Reason::NONE, vr.errors[0].code), src, (float)vr.errors[0].rule);
   }
+  if (!validatePrograms(progs_, nprog_, cand.cabin_overtemp_limit).ok())
+    return cmdLog(reply(CmdResult::REJECTED_RELATION, Reason::NONE, ValCode::INVALID_SAFETY_MARGIN), src, 0);
   commitConfig(cand, true);
   config_error_ = false;
   log(Severity::WARNING, EvSrc::CONFIG, EvCode::CONFIG_CHANGE, 0, src);
@@ -645,6 +684,37 @@ CmdReply ClimateCore::recoveryAck(CmdSource src) {
   return cmdLog(reply(CmdResult::ACCEPTED), src, 0);
 }
 
+CmdReply ClimateCore::setPrograms(const Program* list, uint8_t n, CmdSource src) {
+  if (!isLocal(src)) return cmdLog(reply(CmdResult::REJECTED_POLICY), src, (float)n);  // v1: programlar yalnız yerel web
+  const ProgValidation v = validatePrograms(list, n, cfg_.cabin_overtemp_limit);
+  if (!v.ok()) return cmdLog(reply(CmdResult::REJECTED_INVALID, Reason::NONE, ValCode::INVALID_RANGE), src, (float)v.index);
+  for (uint8_t i = 0; i < n; ++i) progs_[i] = list[i];
+  nprog_ = n;
+  hold_ = Hold();
+  log(Severity::INFO, EvSrc::CONFIG, EvCode::PROGRAMS_CHANGED, (float)n, src);
+  return cmdLog(reply(CmdResult::ACCEPTED), src, (float)n);
+}
+
+CmdReply ClimateCore::setProgramsEnabled(bool on, CmdSource src) {
+  if (mqttLocked(src)) return cmdLog(reply(CmdResult::REJECTED_POLICY, Reason::LOCAL_LOCK), src, on);
+  progs_enabled_ = on;
+  return cmdLog(reply(CmdResult::ACCEPTED), src, on);
+}
+
+CmdReply ClimateCore::holdProgram(CmdSource src) {
+  if (mqttLocked(src)) return cmdLog(reply(CmdResult::REJECTED_POLICY, Reason::LOCAL_LOCK), src, 0);
+  if (sched_.climate.index < 0) return cmdLog(reply(CmdResult::REJECTED_STATE), src, 0);
+  hold_.index = sched_.climate.index;
+  hold_.start = sched_.climate.start;
+  log(Severity::INFO, EvSrc::COMMAND, EvCode::PROGRAM_HOLD, (float)hold_.index, src);
+  return cmdLog(reply(CmdResult::ACCEPTED), src, (float)hold_.index);
+}
+
+CmdReply ClimateCore::clearHold(CmdSource src) {
+  hold_ = Hold();
+  return cmdLog(reply(CmdResult::ACCEPTED), src, 0);
+}
+
 CmdReply ClimateCore::command(const char* id, const char* payload, CmdSource src) {
   if (!id) return reply(CmdResult::REJECTED_INVALID, Reason::NONE, ValCode::UNKNOWN_FIELD);
   bool b = false;
@@ -664,6 +734,11 @@ CmdReply ClimateCore::command(const char* id, const char* payload, CmdSource src
   if (!std::strcmp(id, "boost")) return onoff(&ClimateCore::setBoost);
   if (!std::strcmp(id, "sched_night")) return onoff(&ClimateCore::setSchedNight);
   if (!std::strcmp(id, "sched_away")) return onoff(&ClimateCore::setSchedAway);
+  if (!std::strcmp(id, "programs_enabled")) return onoff(&ClimateCore::setProgramsEnabled);
+  if (!std::strcmp(id, "program_hold")) {
+    if (!payload || std::strcmp(payload, "PRESS") != 0) return reply(CmdResult::REJECTED_INVALID);
+    return holdProgram(src);
+  }
   if (!std::strcmp(id, "alarm_ack")) {
     if (!payload || std::strcmp(payload, "PRESS") != 0) return reply(CmdResult::REJECTED_INVALID);  // yok sayılır
     return alarmAck(src);
@@ -675,6 +750,8 @@ CmdReply ClimateCore::command(const char* id, const char* payload, CmdSource src
   Config cand;
   const SetResult sr = setField(cfg_, id, payload, src, cand);
   if (sr.result != CmdResult::ACCEPTED) return cmdLog(reply(sr.result, Reason::NONE, sr.code), src, (float)sr.rule);
+  if (!validatePrograms(progs_, nprog_, cand.cabin_overtemp_limit).ok())
+    return cmdLog(reply(CmdResult::REJECTED_RELATION, Reason::NONE, ValCode::INVALID_SAFETY_MARGIN), src, 0);
   const FieldInfo* f = findField(id);
   const bool oper = f && (f->flags & CF_OPER);
   commitConfig(cand, true);
@@ -773,6 +850,14 @@ void ClimateCore::updateSnapshot() {
   s.heater_arm = arm_;
   s.ventilation_start_effective = vo.start_effective;
   s.post_cool_remaining_s = io.post_cool_remaining_ms / 1000u;
+  s.time_valid = time_valid_;
+  s.programs_enabled = progs_enabled_;
+  s.program_index = sched_.climate.index;
+  s.program_vent_index = sched_.vent.index;
+  s.program_until = sched_.climate.index >= 0 ? sched_.climate.end : -1;
+  s.program_next_change = sched_.next_change;
+  s.program_held = sched_.held;
+  s.heat_suspended = po.heat_suspend;
 }
 
 }  // namespace cc

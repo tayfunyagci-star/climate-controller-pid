@@ -3,3 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# UI önizleme çıktıları (build_test_html.py üretir)
+tools/ui/test/ui_test.html
+tools/ui/test/ui_preview.html

@@ -36,6 +36,7 @@
 | D-18 | `controller_enable=OFF` yalnız yerel | ENTITY_MODEL §1 |
 | D-19 | `sched_*` istekleri `sched_timeout_h` ile kendiliğinden düşer | CONTROL_ARCHITECTURE §3.3 |
 | D-20 | Boot sonrası `heater_was_on` ise post-cool | OUTPUT_AND_INTERLOCKS §6 |
+| D-21 | Yerel program modülü: WEEKLY/DATE_RANGE/ONCE, durumsuz değerlendirme, öncelik BOOST › açık profil › program › Suite | [ADR-009](ADR/ADR-009-local-programs.md), [PROGRAMS.md](PROGRAMS.md) |
 
 ## 3. Açık konular
 
@@ -65,7 +66,7 @@
 | OI-M3 | Suite TÜKETİM birim/metrik genişletmesi | Suite geliştirme talebi |
 | OI-M4 | Suite onayının cihaza aktarılması | Suite geliştirme talebi |
 | OI-S3 | MANUAL modun güç dönüşü davranışı | AUTO |
-| OI-S4 | Yerel haftalık program | FUTURE |
+| OI-S4 | Yerel haftalık program | **Kapandı** → D-21 / ADR-009 |
 | OI-S5 | MQTT TLS | Seçenek olarak v1.1 |
 | OI-S6 | Flash encryption / secure boot | FUTURE |
 | OI-S7 | Donma riskinde sensör arızası (FROST_RISK_NO_SENSOR) için yedek strateji | İkinci sensör |
@@ -93,13 +94,13 @@
 | 13 | Flash bölüm tablosu (OTA×2, LittleFS, NVS, coredump payı) | Geliştirici | Zorunlu | ☐ |
 | 14 | Suite test ortamı: broker, Studio, `broker_teshis.py` erişimi | Kullanıcı | Faz 5 öncesi | ☐ |
 | 15 | Web UI font/ikon varlıkları (IBM Plex WOFF2 + OFL) | Geliştirici | Faz 4 öncesi | ☐ |
-| 16 | Saat kaynağı kararı (NTP sunucusu / RTC) (OI-H10) | Kullanıcı | Faz 3 öncesi | ☐ |
+| 16 | Saat kaynağı kararı (NTP sunucusu / RTC) (OI-H10) — yerel programlar için zorunlu (ADR-009) | Kullanıcı | **Faz 2 öncesi** | ☐ |
 | 17 | HIL test düzeneği (rezistans yerine güvenli yük/lamba, sensör simülasyonu) | Geliştirici | Faz 2 öncesi | ☐ |
 | 18 | Suite geliştirme talepleri kaydı (M3, M4, M8) | Kullanıcı | Hayır | ☐ |
 
 ## 5. Gelecek geliştirmeler (özet)
 
-T2 zorunlu hâle getirme, akım/RPM geri bildirimi, dış sıcaklık ve PID ileri besleme, otomatik PID ayarı, yerel haftalık program, WebSocket, MQTT TLS, imzalı OTA, core dump, HMAC denetim kaydı, çoklu bölge, soğutma/ısı pompası, nemlendirme, CO₂/VOC havalandırma — bkz. [EXPANSION_ROADMAP.md](EXPANSION_ROADMAP.md).
+T2 zorunlu hâle getirme, akım/RPM geri bildirimi, dış sıcaklık ve PID ileri besleme, otomatik PID ayarı, program önceden ısıtma (optimum start), WebSocket, MQTT TLS, imzalı OTA, core dump, HMAC denetim kaydı, çoklu bölge, soğutma/ısı pompası, nemlendirme, CO₂/VOC havalandırma — bkz. [EXPANSION_ROADMAP.md](EXPANSION_ROADMAP.md).
 
 ## 5. Karar günlüğü (implementasyon)
 
@@ -108,3 +109,5 @@ T2 zorunlu hâle getirme, akım/RPM geri bildirimi, dış sıcaklık ve PID iler
 | 25.09.2026 | ★ 1, 2, 3, 4 onaylandı; F1 başlatıldı | Kullanıcı onayı ("Devam") |
 | 25.09.2026 | F1 çekirdek + native testler tamamlandı | Ayrıntı ve sapmalar: [CHANGELOG.md](CHANGELOG.md) |
 | 25.09.2026 | S7 yorumu onaylandı: `max_continuous_heating_min` sayacı yalnız talep doyumdayken birikir | CHANGELOG F1 madde 1; SAFETY_DESIGN §3 S7 notu |
+| 25.09.2026 | F4 UI önizlemesi (sahte cihaz) hazırlandı | Kullanıcı isteği; CHANGELOG “F4 önizleme” |
+| 25.09.2026 | Yerel program modülü eklendi (D-21, ADR-009); çekirdek F1b'de uygulandı, UI önizlemede | Kullanıcı isteği; checklist 16 F2 öncesine çekildi |

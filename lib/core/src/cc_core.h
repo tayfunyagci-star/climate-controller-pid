@@ -13,6 +13,7 @@
 #include "cc_power.h"
 #include "cc_profile.h"
 #include "cc_safety.h"
+#include "cc_schedule.h"
 #include "cc_sensor.h"
 #include "cc_state.h"
 #include "cc_vent.h"
@@ -70,6 +71,14 @@ struct CoreSnapshot {
   SysState sys_state = SysState::BOOT;
   bool heater_arm = false;
   float ventilation_start_effective = 26;
+  bool time_valid = false;
+  bool programs_enabled = true;
+  int8_t program_index = -1;          // iklim kanalı etkin program
+  int8_t program_vent_index = -1;
+  int64_t program_until = -1;         // yerel dakika
+  int64_t program_next_change = -1;
+  bool program_held = false;
+  bool heat_suspended = false;
   uint32_t post_cool_remaining_s = 0;
 };
 
@@ -101,7 +110,9 @@ class ClimateCore {
   void controlStep(uint32_t dt_ms);
   void outputStep(uint32_t dt_ms);
   void safetyStep(uint32_t dt_ms);
-  void setTimeInfo(bool valid, bool day_rollover) { time_valid_ = valid; day_rollover_ |= day_rollover; }
+  // Duvar saati (NTP/RTC). Geçersizken programlar çalışmaz; gün devri yerel güne göre türetilir.
+  void setClock(bool valid, int64_t epoch_utc);
+  int64_t localMinutes() const { return (epoch_utc_ + (int64_t)cfg_.tz_offset_min * 60) / 60; }
   // Ağ durumu yalnız alarm/olay üretir; kontrol durumunu değiştirmez (MQTT LOST ≠ LOCAL CONTROL LOST)
   void setNetStatus(bool wifi_configured, bool wifi_ok, bool mqtt_configured, bool mqtt_ok) {
     wifi_alarm_ = wifi_configured && !wifi_ok;
@@ -129,6 +140,15 @@ class ClimateCore {
   void otaAbort() { sys_.otaAbort(); }
   bool otaReady() const { return sys_.state() == SysState::OTA; }
   CmdReply recoveryAck(CmdSource src);
+  // Yerel programlar (ADR-009): liste atomik doğrulanır ve bütünüyle değiştirilir
+  CmdReply setPrograms(const Program* list, uint8_t n, CmdSource src);
+  CmdReply setProgramsEnabled(bool on, CmdSource src);
+  CmdReply holdProgram(CmdSource src);   // etkin iklim oluşumunu bitimine kadar atla
+  CmdReply clearHold(CmdSource src);
+  const Program* programs() const { return progs_; }
+  uint8_t programCount() const { return nprog_; }
+  bool programsEnabled() const { return progs_enabled_; }
+  const ScheduleResult& schedule() const { return sched_; }
 
   // ---- Test kancaları (yalnız test build; üretimde derlenmez — SECURITY §5) ----
   void testFreezeControl(bool f) { freeze_control_ = f; }
@@ -207,6 +227,14 @@ class ClimateCore {
   bool time_valid_ = false, day_rollover_ = false;
   bool freeze_control_ = false, freeze_output_ = false;
   bool wifi_alarm_ = false, mqtt_alarm_ = false;
+  int64_t epoch_utc_ = 0;
+  int32_t last_local_day_ = INT32_MIN;
+  Program progs_[kMaxPrograms];
+  uint8_t nprog_ = 0;
+  bool progs_enabled_ = true;
+  Hold hold_;
+  ScheduleResult sched_;
+  bool programsFit(float overtemp_limit) const { return validatePrograms(progs_, nprog_, overtemp_limit).ok(); }
 
   // Zamanlama
   uint32_t up_ms_ = 0;

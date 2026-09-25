@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Kulübe İklim</title>
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<a class="skip" href="#main">İçeriğe geç</a>
+<div class="wrap">
+<header class="top">
+  <div class="top-row">
+    <div>
+      <div class="eyebrow">SCALE · İKLİM KONTROL</div>
+      <h1 id="dev-name">Kulübe İklim</h1>
+    </div>
+    <div class="top-actions">
+      <button type="button" id="btn-info" data-icon="info" aria-expanded="true" aria-controls="identity">Cihaz bilgisi</button>
+      <button type="button" id="btn-theme" data-icon="theme">Temayı değiştir</button>
+    </div>
+  </div>
+  <p class="identity open" id="identity">
+    <span>IP <b id="id-ip">—</b></span>
+    <span class="id-extra">mDNS <b id="id-mdns">—</b></span>
+    <span class="id-extra">İstemci <b id="id-client">—</b></span>
+    <span class="id-extra">FW <b id="id-fw">—</b></span>
+    <span class="id-extra">Rev <b id="id-rev">—</b></span>
+  </p>
+  <nav class="menu" aria-label="Sayfalar">
+    <a href="/" data-route="overview" data-icon="gauge">Genel Bakış</a>
+    <a href="/control" data-route="control" data-icon="thermo">Kontrol</a>
+    <a href="/programs" data-route="programs" data-icon="calendar">Programlar</a>
+    <a href="/trends" data-route="trends" data-icon="chart">Trendler</a>
+    <a href="/outputs" data-route="outputs" data-icon="power">Çıkışlar</a>
+    <a href="/alarms" data-route="alarms" data-icon="bell">Alarmlar</a>
+    <a href="/events" data-route="events" data-icon="doc">Olaylar</a>
+    <a href="/settings" data-route="settings" data-icon="gear">Ayarlar</a>
+    <a href="/login" data-route="login" data-icon="user">Oturum</a>
+  </nav>
+</header>
+
+<main id="main" tabindex="-1">
+  <div id="global-notices"></div>
+  <section id="overview" data-title="Genel Bakış"></section>
+  <section id="control" data-title="Kontrol" hidden></section>
+  <section id="programs" data-title="Programlar" hidden></section>
+  <section id="trends" data-title="Trendler" hidden></section>
+  <section id="outputs" data-title="Çıkışlar" hidden></section>
+  <section id="alarms" data-title="Alarmlar" hidden></section>
+  <section id="events" data-title="Olaylar" hidden></section>
+  <section id="settings" data-title="Ayarlar" hidden></section>
+  <section id="login" data-title="Oturum" hidden></section>
+  <details class="diag-panel" id="diag">
+    <summary><h2>Sistem durumu</h2><span class="dim" id="diag-sum">—</span></summary>
+    <dl class="metrics" id="diag-metrics"></dl>
+  </details>
+</main>
+
+<footer class="foot">
+  <span id="foot-fw">FW — · —</span>
+  <span id="foot-note">Yazılım korumaları bağımsız donanım korumalarının (termik kesici, sigorta, RCD) yerine geçmez.</span>
+  <span id="foot-time">Saat bekleniyor</span>
+</footer>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <div class="dlg-head"><h2 id="dlg-title">Onay</h2><button type="button" id="dlg-x" data-icon="x">Kapat</button></div>
+  <div id="dlg-body"></div>
+  <div class="dlg-acts"><button type="button" id="dlg-cancel">Vazgeç</button><button type="button" id="dlg-ok" class="primary">Onayla</button></div>
+</dialog>
+<script src="/app.js"></script>
+</body>
+</html>

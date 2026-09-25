@@ -33,8 +33,8 @@ inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi 
 enum class Quality : uint8_t { GOOD, UNCERTAIN, STALE, BAD, MISSING, DISABLED };
 enum class OpMode : uint8_t { OFF, AUTO, MANUAL, VENT_ONLY };
 enum class ProfileSel : uint8_t { DAY, NIGHT, AWAY, FROST };                    // kullanıcı seçimi
-enum class ProfileActive : uint8_t { DAY, NIGHT, AWAY, FROST, BOOST };          // çözülen profil
-enum class SetpointSource : uint8_t { DAY, NIGHT, AWAY, FROST, BOOST, ANTIFREEZE, MANUAL };
+enum class ProfileActive : uint8_t { DAY, NIGHT, AWAY, FROST, BOOST, PROGRAM };  // çözülen profil (PROGRAM: ADR-009)
+enum class SetpointSource : uint8_t { DAY, NIGHT, AWAY, FROST, BOOST, ANTIFREEZE, MANUAL, PROGRAM };
 enum class PidMode : uint8_t { P, PI, PID, ONOFF };
 enum class DriverKind : uint8_t { SSR_ZC, SSR_RANDOM, RELAY };
 enum class PostCoolMode : uint8_t { TIME, TEMPERATURE, HYBRID };

@@ -52,8 +52,8 @@ VentOutput Ventilation::step(const Config& c, const VentInput& in) {
   } else {
     hum_high_ = false;
   }
-  const bool sched = autoOk && c.ventilation_periodic_min > 0 &&
-                     (in.uptime_s % 3600u) < (uint32_t)c.ventilation_periodic_min * 60u;
+  const bool sched = autoOk && (in.program_vent || (c.ventilation_periodic_min > 0 &&
+                     (in.uptime_s % 3600u) < (uint32_t)c.ventilation_periodic_min * 60u));
   const bool manualReq = manual_ && !in.service;
 
   if (temp_high_) o.sources |= VS_TEMP_HIGH;

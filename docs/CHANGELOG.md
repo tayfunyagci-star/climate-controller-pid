@@ -63,3 +63,56 @@
 
 - `pio test -e native` ve `pio run` kullanıcı makinesinde çalıştırılıp sonuç bu dosyaya eklenecek.
 - Kalıcılık (alarm/safety kilitleri, sayaçlar, `controller_enable`) F3'te.
+
+## F4 önizleme — gömülü web arayüzü kaynakları (25.09.2026)
+
+Kullanıcı isteğiyle F2/F3'ten önce UI kaynakları ve sahte cihazlı önizleme hazırlandı. Firmware tarafı (REST uçları, `assemble.py`, `ui_generated.h`) F4'te yazılacak.
+
+### Eklenenler
+
+- `tools/ui/index.html`, `app.css`, `theme.js`, `app.js` (kaynak: `tools/ui/src/*.js`, sıralı birleştirme). scada-ui-design token'ları, 10/11/12/14 px ölçeği, iki tema, inline stil/betik yok (dinamik ölçüler SVG öznitelikleriyle).
+- Sayfalar: Genel Bakış, Kontrol (İklim · Profiller · Havalandırma · PID), Trendler (5 dk–24 sa, SVG, Gantt, tablo alternatifi), Çıkışlar (istek/etkin/neden, servis test sütunu), Alarmlar, Olaylar, Ayarlar (Ağ · MQTT · Sensörler · Kontrol · Güvenlik · Erişim · Bakım), Oturum.
+- Komut akışı: gönderiliyor → onay bekleniyor (`seq` + alan eşleşmesi, 5 s) → onaylandı / reddedildi / zaman aşımı; `OVERRIDDEN` uyarı notu; bayat veride kumanda kapalı.
+- `tools/ui/test/mock_device.js` — sahte cihaz: çekirdeğin sadeleştirilmiş JS kopyası (PI, kademe, prestart, post-cool, havalandırma, S1/S3, alarmlar, olaylar, trend), önizleme paneli (hız, sensör çekme, aşırı sıcaklık, broker, komut reddi, çevrimdışı, dış sıcaklık).
+- `tools/ui/test/build_test_html.py` → `test/ui_test.html` (file://) ve `test/ui_preview.html` (Artifact gövdesi).
+
+### Doğrulama
+
+- Playwright (Chromium, headless): 2 tema × 1280/390 px, 8 sayfa gezildi. JS/konsol hatası yok (yalnız sandbox'ta erişilemeyen Google Fonts), yatay taşma yok, görünür yazılar 10/11/12/14 px (gösterge değerleri hariç). Ekran görüntüleri incelendi.
+- §10 matrisinin tamamı (768 px, 320 px, %200 zoom, kontrast ölçümü), CSP başlıklı sunucu testi ve §11 akış testleri **yapılmadı** → F4.
+
+### Tasarımdan sapmalar / eklemeler
+
+1. REST eklemeleri (WEB_SCADA_UI §13'e işlenecek): `/api/cmd` için `local_lock_min` kimliği; `/api/session`, `/api/service/{enter,exit,test,pin,reset-counters}`, `/api/wifi`, `/api/ota/begin`, `/api/reboot`, `/api/reset-wifi`, `/api/factory-reset`. `/api/data` alanlarına `vent_sources`, `*_minutes_today`, `*_switch_count`, `svc_test_*`, `service_remaining_s`, `local_lock_remaining_s`, `stage2_on/off`, kimlik ve bağlantı alanları eklendi.
+2. Ayarlarda LED bölümü yok (donanımda yok). Programlar sayfası ilk önizlemede yoktu; ADR-009 ile eklendi (aşağıda).
+3. Önizlemede fontlar Google Fonts'tan yüklenir; cihazda IBM Plex WOFF2 yerel olacak (checklist 15 açık).
+
+## Yerel program modülü — ADR-009 (25.09.2026)
+
+Kullanıcı isteği: haftanın günleri, belirli tarihler, belirli saatler, belirli sıcaklıklar ve süreli programlar. Tasarım: [PROGRAMS.md](PROGRAMS.md), karar: [ADR-009](ADR/ADR-009-local-programs.md). OI-S4 kapandı.
+
+### Çekirdek (F1b)
+
+- `lib/core/src/cc_schedule.{h,cpp}`: takvim (Hinnant, 2000–2199), 16 program, WEEKLY / DATE_RANGE / ONCE × END_TIME / DURATION / ALL_DAY × SETPOINT / PROFILE / HEATING_OFF / VENTILATE, durumsuz değerlendirme, iki kanal (iklim, havalandırma), öncelik ONCE › DATE_RANGE › WEEKLY › geç başlayan › düşük indeks, atla (program + oluşum başlangıcı), 8 gün içinde sonraki değişim, P1–P9 doğrulaması.
+- `ClimateCore`: `setClock(valid, epoch_utc)` (`setTimeInfo` yerine; yerel gün dönümü buradan), `setPrograms` (yalnız yerel kaynak), `setProgramsEnabled`, `holdProgram`, `clearHold`; komutlar `programs_enabled`, `program_hold`; olaylar `PROGRAM_START/END/HOLD`, `PROGRAMS_CHANGED`; `ProfileActive::PROGRAM`, `SetpointSource::PROGRAM`; HEATING_OFF → AUTO'da yalnız antifreeze talebi; VENTILATE → havalandırma kaynağı `SCHEDULED`; limit düşürülürken programları bozan konfigürasyon reddedilir (P8 / V5 eşi).
+- Öncelik zinciri: BOOST › açık profil › yerel program › Suite `sched_away` › `sched_night` › DAY. Antifreeze ve Safety üstte.
+- Testler: `test/native/test_schedule` 13 test (takvim, pencereler, gece yarısı taşması, öncelik, kanallar, atla, sonraki değişim, doğrulama, ClimateCore entegrasyonu). Bulut ortamında g++ 13 + Unity ile **14 süit / 175 test geçti**, ASan/UBSan temiz. `pio test -e native` kullanıcı makinesinde çalıştırılmadı (PlatformIO registry sandbox'ta erişilemez).
+
+### UI (F4 önizleme)
+
+- Menüye **Programlar** (`/programs`, takvim ikonu) eklendi; menü 9 öğe, ≤1000 px ve telefonda 3×3.
+- Sayfa: Şu an (iklim/havalandırma programı, bitiş, sonraki değişim, etkin hedef, “Etkin programı atla”), Modül anahtarı (`programs_enabled`), haftalık SVG zaman çizelgesi (şimdi çizgisi, etkin oluşum vurgusu, havalandırma alt şerit), program kartları (düzenle/duraklat/sil), düzenleyici diyaloğu (tekrar türü, günler + hızlı seçim, tarih, bitiş türü, süre, eylem, hedef/profil, canlı özet, istemci doğrulaması; sunucu hatası `code` + `index` ile Türkçe gösterilir).
+- Genel Bakış profil satırı ve Kontrol › Profiller'de etkin yerel program; Suite satırları “Suite gece / Suite uzakta” diye adlandırıldı.
+- Sahte cihaz: çekirdek değerlendirmesinin JS eşi, 7 örnek program, `/api/programs` GET/POST, program olayları, HEATING_OFF ve VENTILATE etkisi. Önizleme saati Cuma 25.09.2026 06:40 (UTC+3).
+- Playwright: 2 tema × 1280/390 px, 9 sayfa, yatay taşma ve JS hatası yok; program ekleme (gün yok → hata, 35 °C → hata, geçerli → kaydedildi), atla ve Genel Bakış akışı denendi.
+
+### Faz planına etkisi
+
+| Faz | İş |
+|---|---|
+| F1b | Çekirdek + testler — **tamam** |
+| F2 | Saat kaynağı (NTP/RTC) ve `TIME_INVALID`; checklist 16 F2 öncesine çekildi |
+| F3 | `programs.json` atomik kalıcılık, `programs_enabled` ve atlama kaydının persist'i |
+| F4 | `/api/programs` GET/POST, `/api/cmd` kimlikleri, sayfa — UI önizlemede hazır |
+| F5 | MQTT: `programs_enabled` (switch), `program_active`, `program_until` (sensor), `program_hold` (button) |
+| F8 | HIL: gün dönümü, saat düzeltmesi, kesinti sonrası doğru program |

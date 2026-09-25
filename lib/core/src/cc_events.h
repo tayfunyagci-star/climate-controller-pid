@@ -40,6 +40,10 @@ enum class EvCode : uint16_t {
   DEVICE_BOOT,
   BOOT_POST_COOL,
   LOCAL_LOCK,
+  PROGRAM_START,       // val = program indeksi
+  PROGRAM_END,
+  PROGRAM_HOLD,
+  PROGRAMS_CHANGED,
   COUNT_
 };
 const char* name(EvCode);

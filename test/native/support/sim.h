@@ -82,6 +82,8 @@ struct Runner {
   float noise = 0.0f;
   float t1_override = NAN;          // NaN değilse sensör bu değeri okur
   Rng rng{1};
+  bool clock = false;               // duvar saati geçerli mi
+  int64_t epoch0 = 0;               // UTC epoch (t_ms = 0 anı)
 
   void begin(const cc::Config& c, const cc::BootInfo& b = cc::BootInfo()) {
     core.begin(c, b);
@@ -106,6 +108,7 @@ struct Runner {
         core.feedRh(cc::DrvStatus::TIMEOUT, NAN);
       }
     }
+    if (clock) core.setClock(true, epoch0 + (int64_t)(t_ms / 1000));
     core.tick(dt);
     const bool* o = core.outputs();
     cabin.step(dt / 1000.0f, o[cc::R1], o[cc::R2], o[cc::HF], o[cc::VF]);

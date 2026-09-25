@@ -9,6 +9,7 @@ float ProfileResolver::setpointFor(const Config& c, ProfileActive p) {
     case ProfileActive::AWAY: return c.setpoint_away;
     case ProfileActive::FROST: return c.setpoint_frost;
     case ProfileActive::BOOST: return c.setpoint_boost;
+    case ProfileActive::PROGRAM: return c.temperature_setpoint;
   }
   return c.temperature_setpoint;
 }
@@ -50,15 +51,27 @@ ProfileOutput ProfileResolver::step(const Config& c, const ProfileInput& in) {
     if (c.sched_timeout_h > 0 && away_t_.atLeast(schedLim)) { sched_away_ = false; o.ev_sched_away_expired = true; }
   }
 
-  // --- Profil önceliği: BOOST › açık seçim › sched_away › sched_night › DAY ---
+  // Öncelik: BOOST › açık seçim › yerel program (ADR-009) › sched_away › sched_night › DAY
   ProfileActive act = ProfileActive::DAY;
+  bool fromProgram = false;
+  float target = 0;
   if (boost_) act = ProfileActive::BOOST;
   else if (c.profile != ProfileSel::DAY) act = (ProfileActive)(uint8_t)c.profile;
+  else if (in.program && in.program_action != ProgramActionIn::NONE) {
+    fromProgram = true;
+    if (in.program_action == ProgramActionIn::PROFILE) act = (ProfileActive)(uint8_t)in.program_profile;
+    else act = ProfileActive::PROGRAM;
+    if (in.program_action == ProgramActionIn::HEATING_OFF) o.heat_suspend = true;
+  }
   else if (sched_away_ && !in.local_lock) act = ProfileActive::AWAY;
   else if (sched_night_ && !in.local_lock) act = ProfileActive::NIGHT;
   o.active = act;
-  float target = setpointFor(c, act);
-  o.source = (SetpointSource)(uint8_t)act;  // DAY..BOOST aynı sırada
+  if (act == ProfileActive::PROGRAM)
+    target = in.program_action == ProgramActionIn::SETPOINT ? in.program_setpoint : c.setpoint_frost;
+  else target = setpointFor(c, act);
+  static const SetpointSource kSrc[] = {SetpointSource::DAY, SetpointSource::NIGHT, SetpointSource::AWAY,
+                                        SetpointSource::FROST, SetpointSource::BOOST, SetpointSource::PROGRAM};
+  o.source = fromProgram ? SetpointSource::PROGRAM : kSrc[(uint8_t)act];
   if (in.mode == OpMode::MANUAL) o.source = SetpointSource::MANUAL;
 
   // --- Antifreeze bekçisi ---

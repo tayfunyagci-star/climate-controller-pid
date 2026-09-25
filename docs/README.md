@@ -29,6 +29,7 @@ Cihaz; iki AC rezistans (R1, R2), rezistanslara ait bir **Heater Fan**, kulübe 
 | [MQTT_INTEGRATION.md](MQTT_INTEGRATION.md) | Topic, QoS/retain, LWT, discovery, komut/ACK, Programs, Suite uyumsuzlukları |
 | [ENTITY_MODEL.md](ENTITY_MODEL.md) | Entity kataloğu, taksonomi ve Studio widget eşlemesi, SCADA kartı |
 | [WEB_SCADA_UI.md](WEB_SCADA_UI.md) | Gömülü web HMI: sayfalar, wireframe, durum gösterimi, trend, erişilebilirlik |
+| [PROGRAMS.md](PROGRAMS.md) | Yerel program modülü: haftalık / tarih aralığı / tek sefer, öncelik, REST, MQTT, kalıcılık ([ADR-009](ADR/ADR-009-local-programs.md)) |
 | [ALARM_AND_EVENTS.md](ALARM_AND_EVENTS.md) | Alarm kataloğu, alarm durum makinesi, olay günlüğü |
 | [CONFIGURATION_MODEL.md](CONFIGURATION_MODEL.md) | Ayar alanları, aralık/varsayılan, doğrulama kuralları, kalıcılık |
 | [DIAGNOSTICS.md](DIAGNOSTICS.md) | Tanı değerleri, çalışma saatleri, anahtarlama sayaçları |

@@ -31,6 +31,7 @@ struct VentInput {
   bool sensor_fault = false;        // Safety SENSOR/CONFIG/INTERNAL → otomatik kurallar durur
   uint32_t uptime_s = 0;            // periyodik havalandırma için
   bool vf_effective = false;        // önceki tik etkin durumu (rapor için)
+  bool program_vent = false;        // yerel program VENTILATE eylemi (SCHEDULED kaynağı)
 };
 
 struct VentOutput {

@@ -22,7 +22,7 @@
 | Isı pompası | Ayrı sürücü profili (min run/off 3–5 dk, defrost girişi) | — | Minimum süre kuralları interlock tablosunda |
 | Çoklu bölge | `Zone` nesnesi: sensör rolleri + kontrolör + çıkış grubu | `zone_<n>_*` | ClimateController örneklenebilir tasarlanır (global durum yok); MQTT'de bölge başına entity öneki |
 | Nemlendirme | Çıkış + `humidity_low_limit` | `humidifier_active` | Havalandırma koordinasyon tablosu genişler |
-| Yerel haftalık program | baseline §4 program modülü | — | Suite yokken profil geçişi |
+| Yerel program önceden ısıtma (optimum start), yaz saati, MQTT'den liste yazımı | Program modülü (ADR-009 uygulandı) | — | Öğrenilen ısınma hızı |
 | WebSocket canlı veri | Web katmanı | — | Polling yolu korunur (ADR-006) |
 | Core dump, HMAC denetim | Diag, EventLog | — | |
 
@@ -32,11 +32,12 @@
 |---|---|---|
 | 0 | Donanım kararları ([DECISIONS_AND_OPEN_ISSUES §4](DECISIONS_AND_OPEN_ISSUES.md) checklist) | Checklist "kodlamadan önce" maddeleri kapalı |
 | 1 | Saf çekirdek (host'ta): PID, PowerManager, InterlockEngine, profil çözücü, config doğrulayıcı, alarm FSM, HPM + native testler | Tüm tablolar testle kapsanmış; interlock değişmez testi |
-| 2 | HAL + görev iskeleti: SensorTask (1 sürücü), OutputTask (GPIO + ARM), SafetyTask, ControlTask; seri log | HIL: güvenli boot ölçümü, sensör çekme, görev dondurma |
-| 3 | Storage (config, sayaç, olay) + boot/self-test | Kesinti testleri (yazım ortasında güç) |
-| 4 | Web (REST + UI; skill test kiti, mock cihaz) | scada-ui-design §10/§11 |
-| 5 | MQTT (discovery tablosu, state, komut, ack) | `broker_teshis.py` sağlıklı; Studio'da entity/tip/değer/online ölçümü; 8 s doğrulama |
+| 1b | Yerel program çekirdeği (`cc_schedule`, ADR-009) + testler | **Tamam** (25.09.2026) |
+| 2 | HAL + görev iskeleti: SensorTask (1 sürücü), OutputTask (GPIO + ARM), SafetyTask, ControlTask; saat kaynağı (NTP/RTC → `setClock`); seri log | HIL: güvenli boot ölçümü, sensör çekme, görev dondurma |
+| 3 | Storage (config, sayaç, olay, `programs.json`) + boot/self-test | Kesinti testleri (yazım ortasında güç) |
+| 4 | Web (REST + UI, `/api/programs`; skill test kiti, mock cihaz) | scada-ui-design §10/§11 |
+| 5 | MQTT (discovery tablosu, state, komut, ack; program entity'leri) | `broker_teshis.py` sağlıklı; Studio'da entity/tip/değer/online ölçümü; 8 s doğrulama |
 | 6 | Programs/Kurallar senaryoları, Suite proje kartı | MQTT_INTEGRATION §9 |
 | 7 | OTA + rollback, trend, HPM ayarı | OTA kesinti testi |
 | 8 | Saha: PID ayarı, 7 gün dayanıklılık, heap/gecikme | NFR hedefleri |
-| 9+ | T2, akım ölçümü, dış sıcaklık, yerel program … | Özellik bazlı |
+| 9+ | T2, akım ölçümü, dış sıcaklık, program önceden ısıtma … | Özellik bazlı |

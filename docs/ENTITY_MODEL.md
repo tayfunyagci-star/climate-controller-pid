@@ -48,6 +48,10 @@ Eşleme kaynakları: `ENTITY_TAXONOMY.md` (§2 `kind` ↔ `entity_type`), `ENTIT
 | `boost_remaining_min` | Boost kalan | sensor | sensor | number/integer | — | dk | duration | DETAY |
 | `sched_night` | Gece programı isteği | switch | switch | binary/boolean | ✓ | | — | DETAY (Programs hedefi) |
 | `sched_away` | Uzakta programı isteği | switch | switch | binary/boolean | ✓ | | — | DETAY (Programs hedefi) |
+| `programs_enabled` | Yerel programlar | switch | switch | binary/boolean | ✓ | | — | DETAY (ADR-009) |
+| `program_active` | Etkin yerel program | sensor | sensor | string | — | | — | KART (ad veya `—`) |
+| `program_until` | Program bitişi | sensor | sensor | string | — | | — | DETAY (ISO yerel) |
+| `program_hold` | Etkin programı atla | button | button | — | ✓ | | — | DETAY (PRESS) |
 | `sensor_ok` | Sensör sağlıklı | binary_sensor | binary | binary/boolean | — | | — | KART |
 | `temperature_quality`, `humidity_quality` | … kalitesi | sensor | sensor | string | — | GOOD… | — | TANI |
 | `t2` | Hava çıkış sıcaklığı | sensor | sensor | number/float | — | °C | temperature | DETAY (**yalnız `t2_enabled`**) |

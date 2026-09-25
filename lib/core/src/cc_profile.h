@@ -4,6 +4,9 @@
 
 namespace cc {
 
+// Yerel program eylemi (cc_schedule.h'ye bağımlılık olmadan)
+enum class ProgramActionIn : uint8_t { NONE, SETPOINT, PROFILE, HEATING_OFF };
+
 struct ProfileInput {
   OpMode mode = OpMode::AUTO;
   bool service = false;           // sistem SERVICE durumunda (antifreeze devre dışı)
@@ -12,6 +15,11 @@ struct ProfileInput {
   float t1 = kNaN;                // kontrol değeri (PV_f)
   Quality t1_quality = Quality::MISSING;
   uint32_t dt_ms = 0;
+  // Yerel program (ADR-009): iklim kanalında etkin oluşum
+  bool program = false;
+  ProgramActionIn program_action = ProgramActionIn::NONE;
+  float program_setpoint = 21.0f;
+  ProfileSel program_profile = ProfileSel::NIGHT;
 };
 
 struct ProfileOutput {
@@ -21,6 +29,7 @@ struct ProfileOutput {
   float effective = 21.0f;        // setpoint_effective
   bool ramping = false;
   bool antifreeze = false;        // antifreeze bekçisi etkin
+  bool heat_suspend = false;      // program HEATING_OFF: ısıtma yok (antifreeze hariç)
   uint32_t boost_remaining_min = 0;
   // Bu adımda oluşan olaylar
   bool ev_boost_ended = false;

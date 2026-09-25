@@ -57,7 +57,7 @@
 | OI-H8 | Termik kesici tipi ve eşik | L0 | Elle resetli |
 | OI-H9 | Kart (ESP32-S3-DevKitC-1 varyantı, PSRAM), pin haritası, strapping | Boot güvenliği | Pin tablosu donanım belgesinde |
 | OI-H10 | RTC modülü | Saat, rotasyon, günlük geçmiş | NTP yeterliyse gerek yok |
-| OI-H11 | Durum LED'i / servis butonu | UI LED bölümü, kurtarma | Buton önerilir |
+| OI-H11 | Durum LED'i / servis butonu | UI LED bölümü, kurtarma | **LED kapandı (F2.4):** WS2812B 6 LED'lik şerit, GPIO27 ([WEB_SCADA_UI §11.1](WEB_SCADA_UI.md)). CC-SCH-01 şemasına şerit + seviye çevirici henüz işlenmedi. Buton (BOOT 10 s) F2.2'de |
 | OI-H12 | Muhafaza içi sensör yerleşimi | Öz ısınma | SENSOR_ARCHITECTURE §8 |
 
 ### 3.2 Yazılım / entegrasyon

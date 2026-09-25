@@ -206,6 +206,8 @@ function renderShell() {
   $$('[data-pill=time]').forEach(p => setPill(p, D.time_valid === 'ON' ? 'ok' : 'warn', 'Saat · ' + (D.time_valid === 'ON' ? 'Eşitli' : 'Bekleniyor')));
   // kimlik
   setText($('#dev-name'), D.device_name || 'Kulübe İklim');
+  const title = (D.device_name || 'Kulübe İklim') + ' · ' + ($('#' + currentRoute) ? $('#' + currentRoute).dataset.title : '');
+  if (document.title !== title) document.title = title;
   setText($('#id-ip'), D.ip || '—');
   setText($('#id-mdns'), (D.mdns || '—') + '.local');
   setText($('#id-client'), D.client_ip || '—');

@@ -130,6 +130,7 @@ svg.bar .bar-mark{stroke:var(--text-dim);stroke-width:1;stroke-dasharray:2 2;vec
 .notice.critical{color:var(--crit-text);background:var(--crit-bg);border-color:var(--crit-line)}
 .notice.info{color:var(--text-dim);border-color:var(--border-soft)}
 .notice b{font-weight:600}
+#global-notices:not(:empty){margin-top:12px}
 .reason{display:flex;align-items:center;gap:5px;font-size:var(--fs-xs)}
 .reason.warn{color:var(--warn-text)} .reason.crit{color:var(--crit-text)} .reason.info{color:var(--text-dim)}
 .reason svg{width:14px;height:14px}
@@ -270,6 +271,33 @@ fieldset.panel legend{font:400 var(--fs-s) var(--font-mono);padding:0 4px;text-t
 .dirty-text{margin:0;font-size:var(--fs-xs)}
 .savebar-actions{display:flex;gap:6px}
 section.panel.red-zone{border:1px dashed var(--red);background:var(--zone-bg)}
+.tabpanel>.savebar{margin-top:0}
+/* LED (WS2812B durum şeridi) */
+.range-row{display:flex;align-items:center;gap:10px}
+.range-row input[type=range]{flex:1;min-width:0;accent-color:var(--brand)}
+.range-out{min-width:44px;text-align:right;font-size:var(--fs-xs)}
+.dot{display:inline-block;width:14px;height:14px;border-radius:50%;border:1px solid var(--border-soft);flex:none}
+.dot.big{width:22px;height:22px}
+.dot.off{background:var(--bg-input)!important;border-style:dashed}
+.dot.blink{animation:led-blink 1s steps(1,end) infinite}
+@keyframes led-blink{50%{opacity:.15}}
+@media (prefers-reduced-motion:reduce){.dot.blink{animation:none;outline:2px dashed var(--warn-line);outline-offset:2px}}
+.led-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.led-live{display:grid;justify-items:center;gap:3px;padding:8px 4px;border:1px solid var(--border-soft);border-radius:var(--r-control);text-align:center;font-size:var(--fs-2xs)}
+.led-live b{font:400 var(--fs-2xs) var(--font-mono)}
+.led-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.led-card{display:grid;gap:4px;align-content:start;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--r-control);min-width:0}
+.led-row summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:32px;padding:2px 6px;border-radius:var(--r-control);cursor:pointer;list-style:none;font-size:var(--fs-xs)}
+.led-row summary::-webkit-details-marker{display:none}
+.led-row summary:hover{background:var(--bg-input)}
+.led-row.changed summary{box-shadow:inset 3px 0 0 var(--warn-line)}
+.swatch-cur{display:flex;align-items:center;gap:6px;color:var(--text-dim)}
+.palette{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;margin:4px 0 6px;padding:6px;border:1px solid var(--border-soft);border-radius:var(--r-control);background:var(--bg-panel)}
+.pal{display:flex;align-items:center;gap:6px;min-height:30px;padding:2px 4px;border-radius:var(--r-control);font-size:var(--fs-xs);cursor:pointer}
+.pal:hover{background:var(--bg-input)}
+.pal input{margin:0}
+.pal-close{grid-column:1/-1;justify-self:end;margin-top:4px}
+@media (max-width:600px){.led-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .red-zone h3{color:var(--crit-text)}
 .btn-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 @media (max-width:600px){

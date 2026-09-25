@@ -14,7 +14,7 @@ Arayüz MQTT'den bağımsızdır; yalnız cihazın REST uçlarını kullanır. G
 | Canlı veri | `GET /api/data` 1 s, `STALE_MS=4000`, `CONFIRM_MS=5000` |
 | Tema | Koyu + açık, `scada-tema` tercih anahtarı |
 | Programlar sayfası | **Var** (`/programs`, ADR-009): haftalık zaman çizelgesi, program listesi, düzenleyici; Suite Programs `sched_*` yolu korunur |
-| LED ayar bölümü | Donanım seçilirse; aksi hâlde bölüm yok |
+| LED ayar bölümü | **Var**: WS2812B durum şeridi, 6 LED (GPIO27) — canlı durum, parlaklık, durum başına renk |
 
 ### 1.1 Skill'den bilinçli sapmalar
 
@@ -236,9 +236,24 @@ Skill'deki Denetim listesi biçimi: rozet (`STATE`, `SAFETY`, `COMMAND`, `OUTPUT
 | 3 | `io` | Sensörler | Sürücü seçimi, rol eşlemesi, T2 etkin, kalibrasyon, örnekleme, filtre |
 | 4 | `ctrl` | Kontrol | Isıtma (sürücü profili, pencere, min on/off, kademe eşikleri, güç), post-cool, havalandırma koordinasyonu, profil varsayılanları |
 | 5 | `safety` | Güvenlik | Safety limitleri (yalnız yönetici), antifreeze, zaman aşımları, restart storm |
-| 6 | `led` | LED | Yalnız donanım seçilirse |
+| 6 | `led` | LED | Canlı şerit durumu (`/api/data.led_states`), `ledB` parlaklık, renk grupları `cls/clw/clq/clm` (ortak) + `clr/clf` (cihaza özgü) |
 | 7 | `access` | Erişim | Skill kataloğu + servis PIN'i |
 | 8 | `maint` | Bakım | Kırmızı alan (§10) |
+
+**Bölüm bölüm kayıt (F2.4):** her sekme kendi formu ve kaydet çubuğudur (“Ağ ayarlarını kaydet”, “LED ayarlarını kaydet” …). Kayıt yalnız o sekmenin alanlarını gönderir ve doğrular; başka sekmedeki geçersiz veya henüz kaydedilemeyen alan (ör. MQTT broker) ağ/statik IP kaydını engellemez, taslağı da silinmez. Çubuk kendi sayısını ve “diğer bölümlerde N” bilgisini gösterir; sayfadan çıkış uyarısı bütün bölümleri kapsar.
+
+### 11.1 Durum LED şeridi (SCADA ailesi ortak düzeni)
+
+| LED | Anahtar | Durum 0 | Durum 1 | Durum 2 | Kaynak |
+|---|---|---|---|---|---|
+| 1 Durum | `cls` | Normal (yeşil, sabit) | Uyarı (turuncu, **yanıp söner**) | Alarm / FAILSAFE (kırmızı, **yanıp söner**) | `alarm_state`, `controller_state` |
+| 2 Ağ | `clw` | Bağlantı yok (kırmızı) | Wi-Fi bağlı (yeşil) | Yalnız AP kurulum (mavi) | `sta_ok`, `ap_mode` |
+| 3 MQTT | `clq` | Kesik (kırmızı) | Bağlı (yeşil) | Tanımsız / kapalı (sönük) | F5'e kadar daima Tanımsız |
+| 4 mDNS | `clm` | Yok (kırmızı) | Hazır (yeşil) | Devre dışı (sönük) | `mdns_ok` |
+| 5 Isıtma | `clr` | Kapalı | 1 kademe (turuncu) | 2 kademe (kırmızı) | uygulanan R1/R2 |
+| 6 Fan | `clf` | Kapalı | Isıtıcı fanı (turkuaz) | Havalandırma (mavi) | uygulanan HF/VF |
+
+Renk anahtarı `<grup><0..2>` = `#rrggbb`, parlaklık `ledB` %0–100 (varsayılan 20); NVS `led` alanında kalıcıdır. Mantık `lib/core/cc_ledstrip` (native `test_ledstrip`), sürücü `src/app/hal_ws2812` (RMT kanal 0, 3 bellek bloğu), uygulama `src/app/status_led`. Kart üstü GPIO2 LED'i eskisi gibi kalp atışı desenini sürdürür.
 
 Alan listesi ve aralıklar [CONFIGURATION_MODEL.md](CONFIGURATION_MODEL.md)'den **bildirimsel** üretilir (skill §8.3 `definitions`); istemci sınırları sunucu sınırlarını yansıtır.
 

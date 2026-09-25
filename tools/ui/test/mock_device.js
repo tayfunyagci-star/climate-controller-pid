@@ -20,6 +20,9 @@ const cfg = {
   cabin_overtemp_limit: 40, overtemp_reset_hysteresis: 3, heater_outlet_limit: 80, max_continuous_heating_min: 240, sensor_stale_s: 10, unexpected_rise_c_per_10min: 1.5, max_rise_c_per_10min: 5,
   antifreeze_enabled: true, frost_guard_temperature: 4, frost_exit_hysteresis: 1, setpoint_frost: 5, service_timeout_min: 30, service_test_max_s: 120, restart_storm_limit: 5, restart_storm_window_min: 30,
   user: 'admin', guestRead: false, session_hours: 8,
+  ledB: 20, cls0: '#00ff00', cls1: '#ff8000', cls2: '#ff0000', clw0: '#ff0000', clw1: '#00ff00', clw2: '#0000ff',
+  clq0: '#ff0000', clq1: '#00ff00', clq2: '#000000', clm0: '#ff0000', clm1: '#00ff00', clm2: '#000000',
+  clr0: '#000000', clr1: '#ff8000', clr2: '#ff0000', clf0: '#000000', clf1: '#00ffff', clf2: '#0000ff',
   temperature_setpoint: 22, setpoint_night: 18, setpoint_away: 12, setpoint_boost: 23, operating_mode: 'AUTO', profile: 'DAY', manual_heat_demand: 40
 };
 const NET = {try: 3, result: 'CONNECTED', fail: 'NONE', phase: 'ONLINE', hold: 0, retryAt: 0};
@@ -376,6 +379,8 @@ function data() {
     active_alarm_count: al.filter(a => a.state !== 'cleared_unacknowledged').length, unacked_alarm_count: al.filter(a => a.state.indexOf('unack') >= 0).length,
     local_lock: onoff(S.lockMs > 0), local_lock_remaining_s: Math.round(S.lockMs / 1000), last_command_source: S.lastCmdSrc, ack_count: S.ackCount,
     free_heap: 182340 - (S.seq % 7) * 64, min_heap: 151220, control_loop_max_ms: 11, reset_reason: 'POWER_ON', boot_count: S.boot, fault_boot_count: 1,
+    led_ok: true, led_states: [hi === 'CRITICAL' || S.failsafe !== 'NONE' ? 2 : hi === 'WARNING' ? 1 : 0, NET.phase === 'ONLINE' ? 1 : flags.ap ? 2 : 0,
+      flags.broker ? 1 : 0, NET.phase === 'ONLINE' ? 1 : 0, (S.R[0] ? 1 : 0) + (S.R[1] ? 1 : 0), S.VF ? 2 : S.HF ? 1 : 0],
     mqtt_reconnects: 2, sensor_error_rate_10m: flags.unplug ? 100 : 0, sensor_model: cfg.sensor_model, config_rev: S.cfgRev
   };
 }
@@ -441,6 +446,9 @@ function validate(c) {
   if (!(c.frost_guard_temperature < c.setpoint_frost)) return e('frost_guard_temperature', 'Devreye girme sıcaklığı donma hedefinin altında olmalı (V4).');
   if (c.pid_mode === 'PI' && !(c.pid_ki > 0)) return e('pid_ki', 'PI modunda Ki > 0 olmalı (V12).');
   if (!(c.pid_ki <= c.pid_kp)) return e('pid_ki', 'Ki, Kp’den büyük olamaz (Ti ≥ 1 dk, V13).');
+  if (!(c.ledB >= 0 && c.ledB <= 100)) return e('ledB', 'LED parlaklığı %0–100 olmalı.');
+  const bad = Object.keys(c).find(k => /^cl[swqmrf][0-2]$/.test(k) && !/^#[0-9a-f]{6}$/i.test(c[k]));
+  if (bad) return e(bad, 'LED rengi #rrggbb biçiminde olmalı.');
   return null;
 }
 // Bağlantı denemesi benzetimi: 4 s sonra başarı (AP'deyse 120 s devir) veya hata sınıfı

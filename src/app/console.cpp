@@ -7,6 +7,7 @@
 #include "hal_outputs.h"
 #include "pins.h"
 #include "net_manager.h"
+#include "status_led.h"
 #include "tasks.h"
 
 namespace app {
@@ -246,6 +247,7 @@ void consoleBegin(const BootState& bs) {
   gpio_set_direction(hw::PIN_BOOT_BTN, GPIO_MODE_INPUT);
   gpio_pullup_en(hw::PIN_BOOT_BTN);
   hal::ledBegin();
+  leds::begin();
   printHelp();
 }
 
@@ -268,6 +270,7 @@ void consoleService() {
   const uint32_t now = millis();
   if (now - g_led_ms >= 250) { g_led_ms = now; updateLed(); }
   hal::ledService(g_led, now);
+  leds::service(now);
   serviceButton(now);
   if (g_autostatus && now - g_status_ms >= 10000) { g_status_ms = now; printStatus(); }
 }

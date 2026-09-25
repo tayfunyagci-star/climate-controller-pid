@@ -24,6 +24,12 @@ constexpr gpio_num_t PIN_VF = GPIO_NUM_33;
 constexpr gpio_num_t PIN_BOOT_BTN = GPIO_NUM_0;
 constexpr gpio_num_t PIN_LED = GPIO_NUM_2;
 
+// WS2812B durum LED şeridi (SCADA ailesi: LED1 durum, LED2 ağ, LED3 MQTT, LED4 mDNS, LED5 ısıtma, LED6 fan).
+// Veri hattı GPIO27 → 330 Ω seri direnç → DIN; şerit 5 V'tan beslenir, DIN'de 5 V mantık için 74AHCT1G125
+// seviye çevirici önerilir (3.3 V çoğu şeritte çalışır ama VIH = 0.7·VDD sınırındadır). 5 V–GND arası
+// 470 µF + 100 nF. Boot'ta GPIO27 yüksek empedans: şerit son rengini tutmaz, ilk çerçeveye kadar söner.
+constexpr gpio_num_t PIN_LED_STRIP = GPIO_NUM_27;
+
 // Yedek (yapılandırılmaz): GPIO13 ileride HEATER_ARM, GPIO21/22 I²C (RTC/SHT), GPIO18 1-Wire (T2).
 
 struct OutPin {
@@ -39,5 +45,9 @@ constexpr OutPin kOutPins[4] = {
 
 // RMT (IDF 4.4 legacy sürücü; ESP32: 8 kanal, her biri TX/RX). DHT22 RX 2 bellek bloğu → kanal 5 kullanılmaz.
 constexpr int RMT_CH_DHT_RX = 4;
+// LED şeridi TX kanal 0, 3 bellek bloğu (0–2; 192 girdi ≥ 6 LED × 24 bit → çerçeve kesme ile doldurulmaz,
+// Wi-Fi kesme gecikmesi bit zamanlamasını bozmaz). Kanal 1–2 bu yüzden kullanılmaz.
+constexpr int RMT_CH_LED_TX = 0;
+constexpr int RMT_LED_MEM_BLOCKS = 3;
 
 }  // namespace hw

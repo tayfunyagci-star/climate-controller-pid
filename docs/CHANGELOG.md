@@ -280,3 +280,29 @@ Kullanıcı isteği: firmware'in ilk kurulum ve Wi-Fi kurtarma akışını becer
 1. Beceri şartnamesindeki “Kaydet ve yeniden başlat” yerine **“Kaydet ve bağlan”**: bu firmware Wi-Fi değişimini yeniden başlatmadan uygular (F2.2 sapma 3); metinler gerçek davranışa göre yazıldı.
 2. Devir süresi (120 s) ve “Kurulumu bitir” yeni firmware yeteneğidir; STA farklı kanaldaysa ESP32 AP'si kanal değiştirir ve telefon kısa süre kopabilir — UI bunu beklenen durum olarak anlatır (HIL H26).
 3. Neden sınıfları olasılık bildirir; ESP32 yanlış parolada çoğunlukla 15/204 verir, zayıf sinyal de aynı kodları üretebilir.
+
+## F2.4 — Bölüm bölüm ayar kaydı, WS2812B durum şeridi, cihaz adı (25.09.2026)
+
+Kullanıcı geri bildirimi (ilk kurulum sahası): statik IP kaydı MQTT broker alanı yüzünden reddedildi ve cihaz DHCP adresiyle açıldı; Ayarlar'da LED bölümü yoktu; üst uyarı çerçevesi üst bara yapışıktı; cihaz adı değiştirilemiyordu.
+
+### Kök neden
+
+Ayarlar tek form olarak bütün sekmeleri tek `POST /api/settings` ile gönderiyordu. Firmware MQTT alanlarını (F5) dolu değerde 409 ile reddettiği için aynı istekteki Ağ alanları (statik IP, cihaz adı) da hiç uygulanmıyordu. Cihaz adı alanı vardı ama aynı nedenle kaydedilemiyordu; SLUG alanı boş ve salt okunur olduğundan “cihaz adı buraya mı?” karışıklığı doğuyordu.
+
+### Değişenler
+
+- UI: her sekme ayrı form + kaydet çubuğu (“<Bölüm> ayarlarını kaydet”, Geri al, “diğer bölümlerde N”); doğrulama ve gövde yalnız o bölüm. Cihaz adı kaydında üst başlık ve tarayıcı sekmesi anında güncellenir. SLUG etiketi “SLUG (MQTT kimliği)” + ipucu; GET artık `slug` (`kulube_iklim_<mac3>`) döndürür.
+- UI: LED sekmesi — canlı şerit durumu, parlaklık kaydırıcısı, 6 grup kartı × 3 durum renk paleti (16 renk, tek palet açık, Escape/dışarı dokunma/Kapat, mevcut özel renk korunur).
+- UI: `#global-notices` üstünde 12 px boşluk.
+- Firmware: `cc_ledstrip` (saf mantık + 5 native test), `hal_ws2812` (RMT TX), `status_led` (NVS `led`, 50 ms tempo, kısa kilit denemesi), `/api/data.led_states` + `led_ok`, `/api/settings` `ledB` + `cls0…clf2`. `POST /api/settings` Ağ anahtarı yoksa `net::apply` çağrılmaz (gereksiz NVS yazımı yok).
+- Pin: GPIO27 → 330 Ω → şerit DIN; 5 V besleme, 74AHCT1G125 önerilir (`pins.h`).
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 18 paket / 207 test geçti (`test_ledstrip` 5 yeni) |
+| ESP32 derleme (xtensa gcc 8.4, Arduino-ESP32 2.0.17 başlıkları, ArduinoJson 7.4.3, `-Wall -Wextra`) | Bütün `src/` birimleri uyarısız derlendi; **bağlama (link) yapılmadı** (PlatformIO/Arduino kayıt sunucusu sandbox'ta engelli) |
+| UI (Playwright + sahte cihaz) | Ağ kaydı yalnız ağ alanlarını gönderir; MQTT taslağı korunur; MQTT'deki geçersiz alan ağ kaydını engellemez; başlıkta yeni ad; palet aç/kapat/seç; LED kaydı yalnız LED alanları; uyarı boşluğu 12 px; JS hatası yok |
+| Kartta WS2812B, HIL | **Yapılmadı** — kullanıcı makinesinde |
+

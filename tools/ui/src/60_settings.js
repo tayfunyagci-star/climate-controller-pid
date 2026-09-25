@@ -6,7 +6,7 @@ const SEL = (...o) => o.map(x => Array.isArray(x) ? x : [x, x]);
 const DEF = {
   net: [
     ['Cihaz kimliği', [
-      ['adN', 'Cihaz adı (görünen)', 'text', {req: 1, ml: 32, hint: 'Yalnız web arayüzünde görünür; MQTT keşif adı sabittir.'}],
+      ['adN', 'Cihaz adı', 'text', {req: 1, ml: 32, hint: 'Üst başlıkta ve tarayıcı sekmesinde görünür. MQTT keşif adı ve SLUG bundan etkilenmez.'}],
       ['mdns', 'mDNS adı', 'text', {req: 1, ml: 63, pat: '[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?', hint: 'Harf, rakam ve tire; “.local” eki eklenir.'}]]],
     ['IP yapılandırması', [
       ['staticEnabled', 'Statik IP kullan', 'checkbox', {hint: 'Kapalıyken adres DHCP ile alınır. Statik bağlantı kurulamazsa cihaz DHCP’ye döner.'}],
@@ -22,7 +22,7 @@ const DEF = {
       ['clearMqttPassword', 'Kayıtlı MQTT parolasını sil', 'checkbox', {ui: 1}]]],
     ['Topic ve yayın', [
       ['mqtt_base', 'Kök topic', 'text', {req: 1, ml: 96, pat: '[^+#\\s]+', hint: 'Tam taban: <kök>/<SLUG>. SLUG değişimi taşınma sihirbazıyla yapılır.'}],
-      ['slug', 'SLUG (cihaz kimliği)', 'text', {ro: 1}],
+      ['slug', 'SLUG (MQTT kimliği)', 'text', {ro: 1, hint: 'Salt okunur. Görünen cihaz adı: Ağ › Cihaz kimliği.'}],
       ['state_active_s', 'Isıtırken yayın (s)', 'number', {min: 1, max: 30}], ['state_idle_s', 'Boşta yayın (s)', 'number', {min: 10, max: 59, hint: 'Suite nokta geçerlilik süresinden kısa olmalı (< 60 s).'}],
       ['diag_interval_s', 'Tanı yayını (s)', 'number', {min: 30, max: 300}],
       ['discovery_enabled', 'Otomatik keşif (Home Assistant / Studio)', 'checkbox', {hint: 'Kapatılınca yayımlanmış keşif kayıtları silinir.'}],
@@ -104,6 +104,9 @@ const DEF = {
       ['service_test_max_s', 'Çıkış testi azami süre (s)', 'number', {min: 10, max: 300}],
       ['restart_storm_limit', 'Aşırı yeniden başlatma sınırı', 'number', {min: 3, max: 10}],
       ['restart_storm_window_min', 'Aşırı yeniden başlatma penceresi (dk)', 'number', {min: 10, max: 120}]]]],
+  led: [
+    ['LED parlaklığı', [
+      ['ledB', 'Parlaklık (%)', 'range', {min: 0, max: 100, step: 5, hint: 'Bütün şerit için. 0: LED’ler sönük. Arayüz teması fiziksel LED rengini değiştirmez.'}]]]],
   access: [
     ['Erişim', [
       ['user', 'Web kullanıcı adı', 'text', {req: 1, ml: 32}],
@@ -115,33 +118,62 @@ const DEF = {
   maint: []
 };
 const SECTIONS = [['net', 'Ağ', 'wifi'], ['mqtt', 'MQTT', 'antenna'], ['io', 'Sensörler', 'sensor'], ['ctrl', 'Kontrol', 'sliders'],
-  ['safety', 'Güvenlik', 'shield'], ['access', 'Erişim', 'key'], ['maint', 'Bakım', 'warn']];
+  ['safety', 'Güvenlik', 'shield'], ['led', 'LED', 'bulb'], ['access', 'Erişim', 'key'], ['maint', 'Bakım', 'warn']];
+// WS2812B durum şeridi (SCADA ailesi ortak düzeni): ilk dört LED bütün cihazlarda aynıdır, sonrakiler cihaza özgüdür.
+// [anahtar öneki, başlık, durum adları, ipucu]; renk anahtarı <önek><0..2> = "#rrggbb" (lib/core/cc_ledstrip ile aynı)
+const LED_GROUPS = [
+  ['cls', 'LED 1 · Durum', ['Normal', 'Uyarı', 'Alarm'], 'Alarm yoksa sabit yanar; uyarı ve alarmda yanıp söner.'],
+  ['clw', 'LED 2 · Ağ', ['Bağlantı yok', 'Wi-Fi bağlı', 'AP kurulum'], 'AP: yalnız kurulum ağı açık, kayıtlı ağa bağlı değil.'],
+  ['clq', 'LED 3 · MQTT', ['Kesik', 'Bağlı', 'Tanımsız'], 'Tanımsız: broker adresi boş veya MQTT kapalı.'],
+  ['clm', 'LED 4 · mDNS', ['Yok', 'Hazır', 'Devre dışı'], 'Hazır: “.local” adı ağda yayımlanıyor.'],
+  ['clr', 'LED 5 · Isıtma', ['Kapalı', '1 kademe', '2 kademe'], 'Cihaza özgü: açık rezistans sayısı.'],
+  ['clf', 'LED 6 · Fan', ['Kapalı', 'Isıtıcı fanı', 'Havalandırma'], 'Cihaza özgü: havalandırma fanı ısıtıcı fanına baskındır.']];
+const PALETTE = [['#000000', 'Siyah (sönük)'], ['#ffffff', 'Beyaz'], ['#ff0000', 'Kırmızı'], ['#00ff00', 'Yeşil'], ['#0000ff', 'Mavi'],
+  ['#ffff00', 'Sarı'], ['#00ffff', 'Turkuaz'], ['#800080', 'Mor'], ['#ff8000', 'Turuncu'], ['#ff69b4', 'Pembe'], ['#bfff00', 'Lime'],
+  ['#008080', 'Teal'], ['#000080', 'Lacivert'], ['#ff00ff', 'Eflatun'], ['#808080', 'Gri'], ['#800000', 'Bordo']];
+const colorName = v => { const p = PALETTE.find(c => c[0] === String(v).toLowerCase()); return p ? p[1] : String(v).toLowerCase(); };
 
 builders.settings = sec => {
-  const form = h('form', {id: 'settings-form', novalidate: ''});
+  const forms = h('div', {hidden: true});
   const tablist = h('div', {class: 'tabs-v', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Ayar bölümleri'});
   const panelsBox = h('div');
-  let baseline = {}, values = {}, saving = false;
-  const fields = {};        // ad → {el, input, def, sec}
+  let baseline = {}, values = {};
+  const saving = {};        // bölüm → kayıt sürüyor
+  const fields = {};        // ad → {wrap, input, type, o, sec, label}
+  const bars = {};          // bölüm → {bar, text, save, revert, label}
   SECTIONS.forEach(([id, label, ico]) => {
     const tab = h('button', {type: 'button', role: 'tab', id: 'tab-' + id, 'aria-controls': 'panel-' + id, 'aria-selected': 'false', tabindex: '-1'},
       icon(ico), h('span', {class: 'tab-label', text: label}), h('span', {class: 'tab-count', hidden: true, 'aria-label': '0 değişiklik'}));
     tablist.append(tab);
     const panel = h('div', {role: 'tabpanel', id: 'panel-' + id, 'aria-labelledby': 'tab-' + id, class: 'tabpanel', hidden: true});
     panelsBox.append(panel);
+    // Her bölüm kendi formudur: kayıt yalnız o bölümün alanlarını gönderir, başka bölümdeki geçersiz/erken alan onu engellemez
+    const form = h('form', {id: 'sf-' + id, novalidate: '', 'data-sec': id});
+    form.addEventListener('submit', e => { e.preventDefault(); saveSection(id); });
+    forms.append(form);
   });
-  const savebar = h('div', {class: 'savebar', id: 'savebar'}, h('p', {class: 'dirty-text', id: 'dirty-text', text: 'Kaydedilmemiş değişiklik yok'}),
-    h('div', {class: 'savebar-actions'},
-      h('button', {type: 'button', id: 'revert', 'data-icon': 'undo', disabled: ''}, 'Geri al'),
-      h('button', {type: 'submit', form: 'settings-form', id: 'save', class: 'primary', 'data-icon': 'save', 'data-text': '', disabled: ''}, 'Ayarları kaydet')));
-  sec.append(sectionHead('Cihaz ayarları'), form, h('div', {class: 'settings'}, tablist, h('div', null, panelsBox, savebar)));
+  sec.append(sectionHead('Cihaz ayarları'), forms, h('div', {class: 'settings'}, tablist, h('div', null, panelsBox)));
+
+  function savebar(id, label) {
+    const text = h('p', {class: 'dirty-text', id: 'dirty-text-' + id, text: 'Kaydedilmemiş değişiklik yok'});
+    const revert = h('button', {type: 'button', id: 'revert-' + id, 'data-icon': 'undo', disabled: ''}, 'Geri al');
+    const save = h('button', {type: 'submit', form: 'sf-' + id, id: 'save-' + id, class: 'primary', 'data-icon': 'save', 'data-text': '', disabled: ''}, label + ' ayarlarını kaydet');
+    revert.addEventListener('click', () => revertSection(id));
+    const bar = h('div', {class: 'savebar', id: 'savebar-' + id}, text, h('div', {class: 'savebar-actions'}, revert, save));
+    bars[id] = {bar, text, save, revert, label: label + ' ayarlarını kaydet'};
+    return bar;
+  }
 
   function field([name, label, type, o = {}], secId) {
-    let input;
-    const id = 'f-' + name;
-    if (type === 'checkbox') input = h('input', {type: 'checkbox', id, name, form: 'settings-form'});
-    else if (type === 'select') input = h('select', {id, name, form: 'settings-form'}, ...o.opts.map(([v, t]) => h('option', {value: v, text: t})));
-    else input = h('input', {id, name, form: 'settings-form', type: type === 'ip' ? 'text' : type,
+    let input, out = null;
+    const id = 'f-' + name, fid = 'sf-' + secId;
+    if (type === 'checkbox') input = h('input', {type: 'checkbox', id, name, form: fid});
+    else if (type === 'select') input = h('select', {id, name, form: fid}, ...o.opts.map(([v, t]) => h('option', {value: v, text: t})));
+    else if (type === 'range') {
+      input = h('input', {type: 'range', id, name, form: fid, min: o.min, max: o.max, step: o.step || 1});
+      out = h('output', {for: id, class: 'range-out num'});
+      input.addEventListener('input', () => { out.textContent = input.value + ' %'; });
+    } else input = h('input', {id, name, form: fid, type: type === 'ip' ? 'text' : type,
       inputmode: type === 'ip' || type === 'number' ? 'decimal' : null, pattern: type === 'ip' ? IPV4 : (o.pat || null),
       min: o.min, max: o.max, step: type === 'number' ? (o.step || 1) : null, maxlength: o.ml, minlength: o.minl,
       required: o.req ? '' : null, readonly: o.ro ? '' : null, autocomplete: type === 'password' ? 'new-password' : 'off'});
@@ -150,19 +182,114 @@ builders.settings = sec => {
     const hint = o.hint ? h('small', {class: 'field-hint', id: hintId, text: o.hint}) : null;
     const wrap = type === 'checkbox'
       ? h('div', {class: 'field full', 'data-name': name}, h('div', {class: 'field toggle'}, input, h('label', {for: id, text: label})), hint)
-      : h('div', {class: 'field', 'data-name': name}, h('label', {for: id, text: label}), input, hint);
-    fields[name] = {wrap, input, type, o, sec: secId, label};
+      : type === 'range'
+        ? h('div', {class: 'field', 'data-name': name}, h('label', {for: id, text: label}), h('div', {class: 'range-row'}, input, out), hint)
+        : h('div', {class: 'field', 'data-name': name}, h('label', {for: id, text: label}), input, hint);
+    fields[name] = {wrap, input, type, o, sec: secId, label, out};
     return wrap;
   }
+
+  // ---- LED renk alanı: gizli değer + <details> palet (bir anda tek palet; seçimde, Escape'te ve dışarı dokunuşta kapanır)
+  function colorField(name, group, state, secId) {
+    const input = h('input', {type: 'hidden', id: 'f-' + name, name, form: 'sf-' + secId});
+    const dot = h('span', {class: 'dot', 'aria-hidden': 'true'});
+    const cname = h('span', {class: 'swatch-name'});
+    const summary = h('summary', null, h('span', {class: 'led-state', text: state}), h('span', {class: 'swatch-cur'}, dot, cname));
+    const pal = h('div', {class: 'palette', role: 'radiogroup', 'aria-label': group + ' · ' + state + ' rengi'});
+    const wrap = h('details', {class: 'led-row', 'data-name': name}, summary, pal, input);
+    const paint = () => {
+      const v = input.value;
+      dot.style.background = v;
+      dot.classList.toggle('off', v === '#000000');
+      setText(cname, colorName(v));
+      summary.setAttribute('aria-label', group + ' · ' + state + ' · ' + colorName(v) + ' rengini değiştir');
+    };
+    const set = v => { if (input.value === v) return; input.value = v; paint(); input.dispatchEvent(new Event('input', {bubbles: true})); };
+    const close = () => { wrap.open = false; summary.focus(); };
+    let ptr = false;
+    pal.addEventListener('pointerdown', () => { ptr = true; });
+    // Palet açılmadan önce (summary tıklamasında, eşzamanlı) ve açılışta doldurulur; boş palet görünmez
+    const fill = () => {
+      pal.textContent = '';
+      const cur = input.value, base = String(baseline[name] || '');
+      const list = PALETTE.slice();
+      [base, cur].forEach(c => { if (c && !list.some(p => p[0] === c)) list.unshift([c, 'Mevcut renk (korunur)']); });
+      list.forEach(([v, t]) => {
+        const r = h('input', {type: 'radio', name: 'pal-' + name, value: v});
+        r.checked = v === cur;
+        const d = h('span', {class: 'dot', 'aria-hidden': 'true'});
+        d.style.background = v;
+        if (v === '#000000') d.classList.add('off');
+        const lab = h('label', {class: 'pal'}, r, d, h('span', {text: t}));
+        // Fare/dokunuş seçimi kapatır; ok tuşları yalnız rengi değiştirir, Enter/Boşluk kapatır
+        r.addEventListener('change', () => { set(v); if (ptr) close(); ptr = false; });
+        r.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); set(v); close(); } });
+        pal.append(lab);
+      });
+      const x = h('button', {type: 'button', class: 'pal-close'}, 'Kapat');
+      x.addEventListener('click', close);
+      pal.append(x);
+    };
+    summary.addEventListener('click', () => { if (!wrap.open) fill(); });
+    wrap.addEventListener('toggle', () => {
+      ptr = false;
+      if (!wrap.open) return;
+      $$('details.led-row[open]', sec).forEach(d => { if (d !== wrap) d.open = false; });
+      if (!pal.children.length) fill();
+      const chk = $('input:checked', pal) || $('input', pal);
+      if (chk) chk.focus();
+    });
+    fields[name] = {wrap, input, type: 'color', o: {}, sec: secId, label: group + ' · ' + state, paint};
+    return wrap;
+  }
+  sec.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const d = $('details.led-row[open]', sec);
+    if (d) { e.preventDefault(); d.open = false; $('summary', d).focus(); }
+  });
+  document.addEventListener('click', e => { $$('details.led-row[open]', sec).forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
+
+  function renderLed(p) {
+    const strip = h('div', {class: 'led-strip', id: 'led-live', role: 'list', 'aria-label': 'Şeritteki LED’lerin şu anki durumu'},
+      ...LED_GROUPS.map(([k, title], i) => h('div', {class: 'led-live', role: 'listitem', 'data-i': String(i)},
+        h('span', {class: 'dot big', 'aria-hidden': 'true'}), h('b', {text: title.replace(' · ', ' ')}), h('span', {class: 'dim led-live-st', text: '—'}))));
+    p.prepend(h('section', {class: 'panel'}, h('h3', {text: 'LED durumu (canlı)'}), strip,
+      h('p', {class: 'field-hint', id: 'led-live-note', text: 'WS2812B şerit, GPIO27. İlk dört LED bütün SCADA cihazlarında aynıdır; sonrakiler cihaza özgüdür. Renkler kayıtlı ayarlarla gösterilir.'})));
+    const grid = h('div', {class: 'led-groups'}, ...LED_GROUPS.map(([k, title, states, hint]) =>
+      h('div', {class: 'led-card'}, h('h4', {text: title}), ...states.map((s, j) => colorField(k + j, title, s, 'led')), h('small', {class: 'field-hint', text: hint}))));
+    p.append(h('section', {class: 'panel'}, h('h3', {text: 'LED renkleri'}), grid));
+  }
+  function updateLedLive(d) {
+    const box = $('#led-live');
+    if (!box || !d) return;
+    const st = Array.isArray(d.led_states) ? d.led_states : [];
+    $$('.led-live', box).forEach((el, i) => {
+      const s = st[i];
+      const g = LED_GROUPS[i];
+      const known = typeof s === 'number' && s >= 0 && s < 3;
+      const c = known ? String(baseline[g[0] + s] || '#000000') : '#000000';
+      const dot = $('.dot', el);
+      dot.style.background = c;
+      dot.classList.toggle('off', !known || c === '#000000');
+      dot.classList.toggle('blink', known && i === 0 && s > 0);
+      setText($('.led-live-st', el), known ? g[2][s] : '—');
+    });
+    setText($('#led-live-note'), d.led_ok === false ? 'LED sürücüsü başlatılamadı: şerit bağlantısını ve GPIO27’yi denetleyin.'
+      : 'WS2812B şerit, GPIO27. İlk dört LED bütün SCADA cihazlarında aynıdır; sonrakiler cihaza özgüdür. Renkler kayıtlı ayarlarla gösterilir.');
+  }
+  pageUpdaters.settings = d => updateLedLive(d);
+
   function valueOf(f) {
     if (f.type === 'checkbox') return f.input.checked;
-    if (f.type === 'number') return f.input.value === '' ? '' : Number(f.input.value);
+    if (f.type === 'number' || f.type === 'range') return f.input.value === '' ? '' : Number(f.input.value);
     return f.input.value;
   }
   function setValue(f, v) {
     if (f.type === 'checkbox') f.input.checked = !!v;
     else if (f.type === 'password') f.input.value = '';
+    else if (f.type === 'color') { f.input.value = String(v || '#000000').toLowerCase(); f.paint(); }
     else f.input.value = v === undefined || v === null ? '' : v;
+    if (f.out) f.out.textContent = f.input.value + ' %';
   }
   function applyDeps() {
     Object.values(fields).forEach(f => {
@@ -174,7 +301,7 @@ builders.settings = sec => {
       }
       if (f.o.off) {
         const c = fields[f.o.off];
-        if (c && c.input.checked) { f.input.value = ''; f.input.disabled = true; } else f.input.disabled = saving;
+        if (c && c.input.checked) { f.input.value = ''; f.input.disabled = true; } else f.input.disabled = !!saving[f.sec];
       }
     });
   }
@@ -198,11 +325,16 @@ builders.settings = sec => {
       b.hidden = !c;
       b.textContent = c;
       b.setAttribute('aria-label', c + ' değişiklik');
+      const sb = bars[id];
+      if (!sb) return;
+      const other = n - c;
+      if (!sb.bar.classList.contains('is-error') || !c)
+        setText(sb.text, (c ? c + ' alanda kaydedilmemiş değişiklik' : 'Kaydedilmemiş değişiklik yok') + (other ? ' · diğer bölümlerde ' + other : ''));
+      if (!c) sb.bar.classList.remove('is-error');
+      sb.bar.classList.toggle('is-dirty', c > 0);
+      sb.save.disabled = !c || !!saving[id];
+      sb.revert.disabled = !c || !!saving[id];
     });
-    setText($('#dirty-text'), n ? n + ' alanda kaydedilmemiş değişiklik' : 'Kaydedilmemiş değişiklik yok');
-    savebar.classList.toggle('is-dirty', n > 0);
-    $('#save').disabled = !n || saving;
-    $('#revert').disabled = !n || saving;
     return n;
   }
   function selectTab(id, focus) {
@@ -228,19 +360,22 @@ builders.settings = sec => {
     if (e.key === 'End') j = ids.length - 1;
     if (j >= 0) { e.preventDefault(); selectTab(ids[j], true); }
   });
-  sec.addEventListener('input', e => { if (e.target.form === form || e.target.getAttribute('form') === 'settings-form') { applyDeps(); refreshDirty(); } });
-  sec.addEventListener('change', e => { if (e.target.getAttribute('form') === 'settings-form') { applyDeps(); refreshDirty(); } });
+  const ours = t => (t.getAttribute('form') || '').startsWith('sf-');
+  sec.addEventListener('input', e => { if (ours(e.target)) { applyDeps(); refreshDirty(); } });
+  sec.addEventListener('change', e => { if (ours(e.target)) { applyDeps(); refreshDirty(); } });
   window.addEventListener('beforeunload', e => { if (built.settings && refreshDirty()) { e.preventDefault(); e.returnValue = ''; } });
 
   function render(d) {
     values = d;
-    SECTIONS.forEach(([id]) => {
+    SECTIONS.forEach(([id, label]) => {
       const p = $('#panel-' + id);
       p.textContent = '';
       (DEF[id] || []).forEach(([title, list]) => {
         const grid = h('div', {class: 'form-grid'}, ...list.map(fd => field(fd, id)));
         p.append(h('section', {class: 'panel'}, h('h3', {text: title}), grid));
       });
+      if (id === 'led') renderLed(p);
+      if (Object.values(fields).some(f => f.sec === id && !f.o.ro)) p.append(savebar(id, label));
     });
     // Güvenlik bölümü notu
     $('#panel-safety').prepend(h('div', {class: 'notice warn'}, icon('warn'),
@@ -252,25 +387,31 @@ builders.settings = sec => {
     Object.entries(fields).forEach(([name, f]) => { baseline[name] = f.type === 'password' ? '' : valueOf(f); });
     applyDeps();
     refreshDirty();
+    updateLedLive(D);
     iconize(sec);
   }
-  $('#revert').addEventListener('click', () => {
-    Object.entries(fields).forEach(([name, f]) => { if (f.o.ui) f.input.checked = false; else if (f.type === 'password') f.input.value = ''; else setValue(f, baseline[name]); });
+  function revertSection(id) {
+    Object.entries(fields).forEach(([name, f]) => {
+      if (f.sec !== id) return;
+      if (f.o.ui) f.input.checked = false; else if (f.type === 'password') f.input.value = ''; else setValue(f, baseline[name]);
+    });
+    bars[id].bar.classList.remove('is-error');
     applyDeps(); refreshDirty(); toast('Değişiklikler geri alındı');
-  });
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    // gizli sekmedeki ilk geçersiz alan
-    const bad = Object.values(fields).find(f => !f.input.disabled && !f.o.ro && !f.input.checkValidity());
+  }
+  async function saveSection(id) {
+    const sb = bars[id];
+    if (!sb || saving[id] || sb.save.disabled) return;
+    const own = Object.entries(fields).filter(([, f]) => f.sec === id);
+    // yalnız bu bölümün ilk geçersiz alanı
+    const bad = own.map(([, f]) => f).find(f => !f.input.disabled && !f.o.ro && !f.input.checkValidity());
     if (bad) {
-      selectTab(bad.sec);
       bad.input.reportValidity();
       bad.input.focus();
       toast('Kaydedilmedi: “' + bad.label + '” alanını düzeltin', true);
       return;
     }
     const body = {};
-    Object.entries(fields).forEach(([name, f]) => {
+    own.forEach(([name, f]) => {
       if (f.o.ro || f.o.ui || f.input.disabled && !(f.o.off && fields[f.o.off].input.checked)) return;
       if (f.type === 'password') {
         if (f.o.off && fields[f.o.off].input.checked) body[name] = '';
@@ -279,30 +420,35 @@ builders.settings = sec => {
       }
       body[name] = valueOf(f);
     });
-    saving = true;
-    const save = $('#save');
-    save.setAttribute('aria-busy', 'true');
-    save.lastChild.textContent = 'Kaydediliyor…';
+    saving[id] = true;
+    sb.save.setAttribute('aria-busy', 'true');
+    sb.save.lastChild.textContent = 'Kaydediliyor…';
     refreshDirty();
+    let ok = false;
     try {
       const r = await api('/api/settings', body);
       Object.entries(body).forEach(([k, v]) => { if (fields[k] && fields[k].type !== 'password') baseline[k] = v; values[k] = v; });
-      Object.values(fields).forEach(f => { if (f.type === 'password') f.input.value = ''; if (f.o.ui) f.input.checked = false; });
-      savebar.classList.remove('is-error');
+      own.forEach(([, f]) => { if (f.type === 'password') f.input.value = ''; if (f.o.ui) f.input.checked = false; });
+      sb.bar.classList.remove('is-error');
+      ok = true;
+      // Görünen ad üst başlıkta ve sekme başlığında hemen güncellenir (sonraki /api/data da aynı değeri getirir)
+      if (D && 'adN' in body) { D.device_name = body.adN; renderShell(); }
+      if (id === 'led') updateLedLive(D);
       toast(r && r.message || 'Kaydedildi');
     } catch (err) {
-      savebar.classList.add('is-error');
-      setText($('#dirty-text'), 'Kaydedilemedi · değişiklikler formda duruyor');
+      sb.bar.classList.add('is-error');
+      setText(sb.text, 'Kaydedilemedi · değişiklikler formda duruyor');
       toast(err.message, true);
       const fld = err.body && err.body.field && fields[err.body.field];
       if (fld) { selectTab(fld.sec); fld.input.focus(); }
     }
-    saving = false;
-    save.setAttribute('aria-busy', 'false');
-    save.lastChild.textContent = 'Ayarları kaydet';
+    saving[id] = false;
+    sb.save.setAttribute('aria-busy', 'false');
+    sb.save.lastChild.textContent = sb.label;
     applyDeps();
-    if (!savebar.classList.contains('is-error')) refreshDirty();
-  });
+    if (ok) refreshDirty();
+    else { sb.save.disabled = false; sb.revert.disabled = false; }
+  }
 
   // ---- Erişim: ayrı formlar
   function renderAccessExtras(p, d) {

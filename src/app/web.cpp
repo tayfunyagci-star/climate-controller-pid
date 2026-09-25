@@ -9,6 +9,7 @@
 #include "core_api.h"
 #include "cc_netfsm.h"
 #include "net_manager.h"
+#include "status_led.h"
 #include "tasks.h"
 #include "ui_generated.h"
 
@@ -19,7 +20,7 @@ namespace {
 WebServer g_srv(80);
 cc::Event g_ev[200];   // olay kopyası (yalnız NetTask)
 
-const char* kFwVersion = "0.2.3";
+const char* kFwVersion = "0.2.4";
 
 void headers(bool api) {
   g_srv.sendHeader("X-Content-Type-Options", "nosniff");
@@ -146,6 +147,13 @@ void handleData() {
   d["wifi_ok"] = ns.sta_ok;
   if (ns.sta_ok) d["wifi_rssi"] = ns.rssi; else d["wifi_rssi"] = nullptr;
   d["mqtt_status"] = "DISABLED";   // F5
+  {
+    uint8_t ls[cc::kLedCount];
+    leds::states(ls);
+    JsonArray la = d["led_states"].to<JsonArray>();
+    for (uint8_t v : ls) la.add(v);
+    d["led_ok"] = leds::driverOk();
+  }
   d["time_valid"] = onoff(ns.clock_valid);
   d["password_set"] = false;       // web parolası F4
   fnum(d, "temperature", s.temperature, 1);
@@ -330,6 +338,26 @@ void settingsGet() {
   d["dns1"] = n.d1;
   d["dns2"] = n.d2;
   d["ntp_server"] = n.ntp;
+  {
+    // MQTT SLUG varsayılanı (MQTT_INTEGRATION §2): kulube_iklim_ + MAC son 3 bayt; taşınma F5'te
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char slug[24];
+    snprintf(slug, sizeof slug, "kulube_iklim_%02x%02x%02x", mac[3], mac[4], mac[5]);
+    d["slug"] = slug;
+  }
+  {
+    const cc::LedConfig lc = leds::config();
+    d["ledB"] = lc.brightness;
+    char key[5], hex[8];
+    for (uint8_t i = 0; i < cc::kLedCount; ++i)
+      for (uint8_t k = 0; k < cc::kLedStates; ++k) {
+        snprintf(key, sizeof key, "%s%u", cc::ledGroup(i).key, (unsigned)k);
+        cc::formatHexColor(lc.color[i][k], hex);
+        d[key] = hex;
+      }
+    d["ledOk"] = leds::driverOk();
+  }
   d["ssid"] = ns.ssid;
   d["passSet"] = net::passSet();
   d["otaPasswordSet"] = net::otaPasswordSet();
@@ -341,17 +369,36 @@ void settingsGet() {
   replyJson(200, doc);
 }
 
-// Yalnız Ağ bölümü + kablosuz kimlik F2.2'de kalıcıdır. Diğer bölümler kalıcı depo (F3) gelene kadar reddedilir.
+// Ayarlar bölüm bölüm kaydedilir (UI her sekmeyi ayrı gönderir): gövde yalnız o bölümün alanlarını taşır,
+// gövdede olmayan alan korunur. Ağ + kablosuz kimlik ve LED F2'de kalıcıdır; diğer bölümler kalıcı depo (F3)
+// gelene kadar değişen değerde reddedilir. Bir bölümün reddi başka bölümün kaydını engellemez.
 void settingsPost() {
   if (!writeOk()) return;
   JsonDocument b;
   if (!body(b)) return;
   static const char* const netKeys[] = {"adN", "mdns", "staticEnabled", "staticIP", "gateway", "subnet", "dns1",
                                         "dns2", "ntp_server", "ssid", "pass", "clearWifiPassword"};
+  bool anyNet = false, anyLed = false;
+  cc::LedConfig lc = leds::config();
   for (JsonPair kv : b.as<JsonObject>()) {
     bool known = false;
     for (const char* k : netKeys) if (!strcmp(kv.key().c_str(), k)) { known = true; break; }
-    if (known) continue;
+    if (known) { anyNet = true; continue; }
+    uint8_t li = 0, ls = 0;
+    if (!strcmp(kv.key().c_str(), "ledB")) {
+      const float v = kv.value().as<float>();
+      if (!kv.value().is<float>() || v < 0 || v > 100 || v != floorf(v)) { replyMsg(400, "LED parlaklığı %0–100 tam sayı olmalı.", "ledB"); return; }
+      lc.brightness = (uint8_t)v;
+      anyLed = true;
+      continue;
+    }
+    if (cc::ledColorKey(kv.key().c_str(), li, ls)) {
+      uint32_t rgb = 0;
+      if (!cc::parseHexColor(kv.value().as<const char*>(), rgb)) { replyMsg(400, "LED rengi #rrggbb biçiminde olmalı.", kv.key().c_str()); return; }
+      lc.color[li][ls] = rgb;
+      anyLed = true;
+      continue;
+    }
     const cc::FieldInfo* f = cc::findField(kv.key().c_str());
     if (!f) {
       // Bu yazılımda henüz karşılığı olmayan UI alanları (MQTT F5, erişim F4 …): GET bunları göndermez,
@@ -373,7 +420,18 @@ void settingsPost() {
     if (f->kind == cc::FieldKind::ENUM) same = kv.value().is<const char*>() && (uint8_t)cur < f->enumCount && !strcmp(kv.value().as<const char*>(), f->enumNames[(uint8_t)cur]);
     else if (f->kind == cc::FieldKind::BOOL) same = kv.value().as<bool>() == (cur != 0);
     else same = fabsf(kv.value().as<float>() - cur) < 1e-4f;
-    if (!same) { replyMsg(409, "Bu ayar kalıcı ayar deposu (F3) eklenince kaydedilebilecek. Şimdilik yalnız Ağ bölümü ve Wi-Fi kaydedilir.", kv.key().c_str()); return; }
+    if (!same) { replyMsg(409, "Bu ayar kalıcı ayar deposu (F3) eklenince kaydedilebilecek. Şimdilik Ağ, LED ve Wi-Fi ayarları kaydedilir.", kv.key().c_str()); return; }
+  }
+  const net::Status ns = net::status();   // net_try tabanı: UI bu değerden büyük denemenin sonucunu bekler
+  if (!anyNet) {
+    const char* err = nullptr;
+    if (anyLed && !leds::apply(lc, &err)) { replyMsg(507, err); return; }
+    JsonDocument d;
+    d["message"] = anyLed ? "LED ayarları kaydedildi" : "Kaydedildi";
+    d["reconnect"] = false;
+    d["net_try_base"] = ns.try_seq;
+    replyJson(200, d);
+    return;
   }
   net::NetSettings n = net::settings();
   auto str = [&](const char* key, char* dst, size_t cap) {
@@ -394,12 +452,12 @@ void settingsPost() {
   const char* pass = b["pass"].is<const char*>() ? b["pass"].as<const char*>() : nullptr;
   if (b["clearWifiPassword"] | false) pass = "";
   // Kimliği değiştirmeyen tekrar gönderim (ana formdaki mevcut SSID) kimlik yazımı sayılmaz
-  const net::Status ns = net::status();   // net_try tabanı: UI bu değerden büyük denemenin sonucunu bekler
   if (ssid && !pass && !strcmp(ssid, ns.ssid)) ssid = nullptr;
   const char* err = nullptr;
   const char* field = nullptr;
   bool reconnect = false;
   if (!net::apply(n, ssid, pass, &err, &field, &reconnect)) { replyMsg(field ? 400 : 507, err, field); return; }
+  if (anyLed && !leds::apply(lc, &err)) { replyMsg(507, err); return; }
   // Kayıt ≠ bağlantı: yanıt yalnız kalıcı kaydı onaylar; bağlantı sonucu /api/data net_try/net_result ile izlenir
   char msg[160];
   if (ssid) snprintf(msg, sizeof msg, "Ayarlar kaydedildi. Cihaz “%s” ağına bağlanmayı deneyecek.", ssid);

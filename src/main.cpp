@@ -1,4 +1,4 @@
-// Kulübe İklim Kontrolörü — ESP32-S3 (F2: HAL + FreeRTOS görevleri + seri konsol)
+// Kulübe İklim Kontrolörü — ESP32 DevKit V1 (F2: HAL + FreeRTOS görevleri + seri konsol)
 // Boot sırası SYSTEM_ARCHITECTURE §5: çıkışlar pasif → reset nedeni → config → çekirdek → görevler → ağ.
 // Karta yükleme yalnız kullanıcının açık talimatıyla; ilk HIL'de rezistans yerine SSR girişlerinde LED.
 #include <Arduino.h>

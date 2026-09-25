@@ -1,7 +1,7 @@
 s1 = open('sheet1.svg').read(); s2 = open('sheet2.svg').read()
 bom = [
  ("U1", "Mean Well IRM-10-5", "AC/DC 5 V 2 A, 10 W, çift izolasyonlu", "1"),
- ("U2", "ESP32-S3-DevKitC-1 N8R8 / N8R2", "8 MB flash; kart üstü 3.3 V LDO, BOOT, WS2812", "1"),
+ ("U2", "ESP32 DevKit V1 (DOIT, 30 pin)", "ESP32-WROOM-32, 4 MB flash; kart üstü AMS1117 3.3 V, BOOT, mavi LED (GPIO2)", "1"),
  ("U3", "2 kanal 5 V röle modülü", "Optokuplörlü, JD-VCC jumper'lı (ör. SRD-05VDC-SL-C, 10 A 250 VAC kontak)", "1"),
  ("B1", "DHT22 / AM2302", "Sıcaklık + nem, tek hat", "1"),
  ("Q1, Q2", "BC337-40", "NPN TO-92, 45 V 800 mA", "2"),
@@ -32,13 +32,13 @@ bom = [
 rows = "\n".join(f"<tr><td class='mono'>{r}</td><td>{v}</td><td>{d}</td><td class='num'>{q}</td></tr>" for r, v, d, q in bom)
 pins = [
  ("GPIO4", "DHT22 DATA", "—", "R1 pull-up 3.3 V, R2 seri"),
- ("GPIO5", "R1 SSR (Q1)", "Aktif-HIGH", "R4 10 kΩ pull-down"),
- ("GPIO6", "R2 SSR (Q2)", "Aktif-HIGH", "R6 10 kΩ pull-down"),
- ("GPIO7", "HF röle IN1", "Aktif-LOW", "R7 10 kΩ pull-up 3.3 V"),
- ("GPIO15", "VF röle IN2", "Aktif-LOW", "R8 10 kΩ pull-up 3.3 V"),
+ ("GPIO25", "R1 SSR (Q1)", "Aktif-HIGH", "R4 10 kΩ pull-down"),
+ ("GPIO26", "R2 SSR (Q2)", "Aktif-HIGH", "R6 10 kΩ pull-down"),
+ ("GPIO32", "HF röle IN1", "Aktif-LOW", "R7 10 kΩ pull-up 3.3 V"),
+ ("GPIO33", "VF röle IN2", "Aktif-LOW", "R8 10 kΩ pull-up 3.3 V"),
  ("GPIO0", "BOOT butonu (kart)", "Aktif-LOW", "Yalnız boot sonrası giriş"),
- ("GPIO48", "WS2812 (kart)", "—", "v1.1 kartta GPIO38"),
- ("GPIO17", "Boş", "—", "İleride HEATER_ARM"),
+ ("GPIO2", "Mavi LED (kart)", "Aktif-HIGH", "Strapping; boot sonrası sürülür"),
+ ("GPIO13", "Boş", "—", "İleride HEATER_ARM"),
 ]
 prow = "\n".join(f"<tr><td class='mono'>{a}</td><td>{b}</td><td>{c}</td><td>{d}</td></tr>" for a, b, c, d in pins)
 html = f'''<title>Kulübe İklim Devre Şeması</title>
@@ -114,12 +114,12 @@ code{{font-family:var(--mono);font-size:.92em}}
 <div class="wrap">
 <header>
  <h1>Kulübe İklim Kontrolörü · Devre Şeması</h1>
- <p class="lead">ESP32-S3 tabanlı iki kademeli ısıtma ve havalandırma kontrolü. F2'de onaylanan donanım kararlarına ve <code>src/app/pins.h</code> pin haritasına göre çizildi.</p>
+ <p class="lead">ESP32 DevKit V1 tabanlı iki kademeli ısıtma ve havalandırma kontrolü. F2'de onaylanan donanım kararlarına ve <code>src/app/pins.h</code> pin haritasına göre çizildi.</p>
 </header>
 <div class="tb" role="group" aria-label="Çizim bilgileri">
  <div><b>Proje</b><span>Climate Controller PID</span></div>
  <div><b>Çizim</b><span>CC-SCH-01 · 2 sayfa</span></div>
- <div><b>Revizyon</b><span>A (F2)</span></div>
+ <div><b>Revizyon</b><span>B (F2.1 · DevKit V1)</span></div>
  <div><b>Tarih</b><span>25.09.2026</span></div>
  <div><b>Durum</b><span>Tasarım — HIL öncesi</span></div>
 </div>
@@ -127,7 +127,7 @@ code{{font-family:var(--mono);font-size:.92em}}
 <figure>
  <h2>Sayfa 1 — Güç ve mantık kartı</h2>
  <div class="sheetwrap">{s1}</div>
- <figcaption>ESP32-S3 kartı, 5 V besleme, DHT22 sensörü, iki SSR sürücü transistörü ve röle modülü. Tüm çıkış hatları reset anında dış dirençlerle pasif seviyede tutulur: SSR tabanları GND'ye, röle IN hatları 3.3 V'a çekilir.</figcaption>
+ <figcaption>ESP32 DevKit V1 kartı, 5 V besleme, DHT22 sensörü, iki SSR sürücü transistörü ve röle modülü. Tüm çıkış hatları reset anında dış dirençlerle pasif seviyede tutulur: SSR tabanları GND'ye, röle IN hatları 3.3 V'a çekilir.</figcaption>
 </figure>
 <figure>
  <h2>Sayfa 2 — Şebeke tarafı</h2>
@@ -148,7 +148,7 @@ code{{font-family:var(--mono);font-size:.92em}}
    <li><b>DHT22:</b> 3.3 V beslemede kablo ≤ 5 m. Daha uzunsa VCC +5V'tan beslenir, R1 yine +3V3'e bağlı kalır (ESP32 girişi 3.3 V'u aşmaz). Sensör rezistans ve fan üflemesinden uzak.</li>
    <li><b>İzolasyon:</b> Şebeke ile SELV kartı arasında ≥ 6 mm açıklık; SSR giriş/çıkış ve röle kontak tarafı ayrı klemens bloklarında.</li>
    <li><b>Kablo kesitleri:</b> Giriş ve rezistans dalı ≥ 1.5 mm² (C10/C16 koruma ile uyumlu), fan dalı ≥ 0.75 mm², SELV 0.25–0.5 mm².</li>
-   <li><b>USB ile çalışma:</b> Programlama sırasında şebeke bağlıysa D1 kart 5V hattından PSU'ya geri beslemeyi engeller. İlk testlerde (HIL-1) şebeke bağlı olmaz, kart USB'den beslenir.</li>
+   <li><b>USB ile çalışma:</b> Programlama sırasında şebeke bağlıysa D1 kart 5V hattından PSU'ya geri beslemeyi engeller. İlk testlerde (HIL-1) şebeke bağlı olmaz, kart USB'den beslenir. DevKit V1'de 5 V girişi VIN pinidir.</li>
    <li><b>STB (F3):</b> Rezistansların üstünde, kulübe havasını değil ısıtıcı çıkış havasını ölçecek şekilde; eşik 70 °C çevresi, sahada ayarlanır. Açtığında elle resetlenmeden rezistans enerjilenmez.</li>
   </ol>
  </div>

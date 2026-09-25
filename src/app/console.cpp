@@ -175,26 +175,26 @@ void execute(char* line) {
   else Serial.println("? (help)");
 }
 
-// Durum LED'i: renk controller_state'ten; ayrıntı web/MQTT'de
-void updateLed() {
-  cc::CtrlState cs = cc::CtrlState::BOOT;
-  cc::Severity al = cc::Severity::NONE;
-  if (!coreLock(10)) return;
-  cs = core().snapshot().controller_state;
-  al = core().snapshot().alarm_state;
-  coreUnlock();
-  uint8_t r = 0, g = 0, b = 0;
+// Durum LED'i (GPIO2): FAILSAFE hızlı, ısıtma sürekli, post-cool/havalandırma yavaş, servis çift çakma,
+// boşta kalp atışı; kritik alarm (FAILSAFE dışı) hızlı. Ayrıntı web/MQTT'de.
+hal::LedPattern ledFor(cc::CtrlState cs, cc::Severity al) {
+  using P = hal::LedPattern;
+  if (cs == cc::CtrlState::FAILSAFE || al == cc::Severity::CRITICAL) return P::FAST;
   switch (cs) {
-    case cc::CtrlState::FAILSAFE: r = 40; break;
-    case cc::CtrlState::HEATING: r = 30; g = 12; break;
-    case cc::CtrlState::POST_COOL: r = 20; g = 20; break;
-    case cc::CtrlState::VENTILATING: b = 30; break;
-    case cc::CtrlState::SERVICE: r = 25; b = 25; break;
-    case cc::CtrlState::BOOT: case cc::CtrlState::SELF_TEST: r = g = b = 15; break;
-    default: g = 25; break;
+    case cc::CtrlState::HEATING: return P::ON;
+    case cc::CtrlState::POST_COOL: case cc::CtrlState::VENTILATING: return P::SLOW;
+    case cc::CtrlState::SERVICE: case cc::CtrlState::RECOVERY: return P::DOUBLE;
+    case cc::CtrlState::BOOT: case cc::CtrlState::SELF_TEST: return P::SLOW;
+    default: return P::HEARTBEAT;
   }
-  if (al == cc::Severity::CRITICAL && cs != cc::CtrlState::FAILSAFE && (millis() / 500) % 2) { r = 40; g = b = 0; }
-  hal::ledSet(r, g, b);
+}
+hal::LedPattern g_led = hal::LedPattern::SLOW;
+
+void updateLed() {
+  if (coreLock(10)) {
+    g_led = ledFor(core().snapshot().controller_state, core().snapshot().alarm_state);
+    coreUnlock();
+  }
 }
 
 }  // namespace
@@ -223,6 +223,7 @@ void consoleService() {
   drainEvents();
   const uint32_t now = millis();
   if (now - g_led_ms >= 250) { g_led_ms = now; updateLed(); }
+  hal::ledService(g_led, now);
   if (g_autostatus && now - g_status_ms >= 10000) { g_status_ms = now; printStatus(); }
 }
 

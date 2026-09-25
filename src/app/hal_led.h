@@ -1,8 +1,10 @@
-// Dahili WS2812 durum LED'i — RMT TX (legacy sürücü). Yalnız konsol/servis görevi yazar.
+// Kart üstü durum LED'i (DevKit V1: GPIO2, tek renk). Desenler: sürekli, yavaş/hızlı yanıp sönme, çift çakma.
+// Yalnız konsol/servis görevi (loop) sürer; bloklamaz.
 #pragma once
 #include <cstdint>
 
 namespace hal {
-bool ledBegin();
-void ledSet(uint8_t r, uint8_t g, uint8_t b);  // bloklamaz (DMA'sız RMT, 24 bit ≈ 30 µs)
+enum class LedPattern : uint8_t { OFF, ON, SLOW, FAST, DOUBLE, HEARTBEAT };
+void ledBegin();
+void ledService(LedPattern p, uint32_t now_ms);
 }

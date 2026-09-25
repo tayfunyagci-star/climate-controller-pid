@@ -177,3 +177,35 @@ Kullanıcı isteği: haftanın günleri, belirli tarihler, belirli saatler, beli
 - Kullanıcı makinesinde `pio test -e native`, `pio run -e esp32-s3-devkitc-1`, `pio run -e esp32-s3-hil`.
 - HIL H1–H15 (açık talimatla yükleme sonrası).
 - Checklist 10 (termik kesici, sigorta/MCB, RCD, PE) — HIL-2 ve enerjilendirme öncesi.
+
+## F2.1 — Hedef kart: ESP32 DevKit V1 (25.09.2026)
+
+Kullanıcı kararı: elde ESP32 DevKit V1 (DOIT, ESP32-WROOM-32, 4 MB flash, PSRAM yok) var; hedef ESP32-S3-DevKitC-1'den buna alındı. Çekirdek ve görev modeli değişmedi (ESP32 de çift çekirdek; görevler çekirdek 1'de).
+
+| Konu | ESP32-S3 (F2) | ESP32 DevKit V1 (F2.1) | Gerekçe |
+|---|---|---|---|
+| DHT22 | GPIO4 | GPIO4 | Boot etkisi yok |
+| R1 / R2 (aktif-HIGH) | GPIO5 / GPIO6 | **GPIO25 / GPIO26** | Klasik ESP32'de GPIO5 strapping (boot'ta PWM), GPIO6 flash hattı |
+| HF / VF (aktif-LOW) | GPIO7 / GPIO15 | **GPIO32 / GPIO33** | GPIO7 flash hattı, GPIO15 strapping (boot'ta PWM) |
+| Durum LED'i | WS2812 GPIO48 (RMT) | **Mavi LED GPIO2** (tek renk, desenli) | DevKit V1'de RGB LED yok; GPIO2 strapping, yalnız boot sonrası sürülür |
+| BOOT butonu | GPIO0 | GPIO0 | |
+| Yedek ARM / I²C / 1-Wire | 17 / 8-9 / 16 | **13 / 21-22 / 18** | GPIO14 boot'ta PWM üretir |
+| Konsol | UART0 GPIO43/44 | UART0 GPIO1/3 | |
+| Flash / bölümler | 8 MB, app 3 MB × 2 | **4 MB**: nvs 20 KB, otadata, app 1.75 MB × 2, LittleFS 384 KB, coredump 64 KB (`partitions_4mb_ota.csv`) | |
+| PlatformIO | `esp32-s3-devkitc-1`, `esp32-s3-hil` | **`esp32dev`**, **`esp32dev-hil`** (board `esp32doit-devkit-v1`) | |
+
+Kaçınılan pinler: strapping 0/2/5/12/15 (0 yalnız buton girişi, 2 yalnız LED), flash 6–11, UART0 1/3, yalnız giriş 34–39, boot'ta PWM üreten 14.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| ESP32 hedef derleme (bulut, arduino-cli + Arduino-ESP32 2.0.17 + xtensa-esp32 gcc 8.4.0, `-Wall -Wextra`), üretim ve HIL | Uyarısız. Üretim: flash 784 733 B (app bölümünün % 43'ü), statik RAM 58 856 B |
+| Bölüm tablosu (`gen_esp32part.py --flash-size 4MB`) | Geçerli |
+| Native testler | Değişmedi (çekirdek dokunulmadı) — 16 paket / 189 test |
+| Devre şeması | CC-SCH-01 rev B (DevKit V1 pinleri, VIN girişi, AMS1117, GPIO2 LED) |
+| `pio run` / HIL | **Yapılmadı** — kullanıcı makinesinde ve açık talimatla |
+
+### Not
+
+- 4 MB flash'ta F4 web varlıkları (≈ 33 KB gzip UI + ≈ 105 KB font) LittleFS yerine firmware içine gömülür (baseline §11); LittleFS 384 KB yalnız config/olay/program dosyaları içindir.

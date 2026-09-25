@@ -21,21 +21,21 @@ a.line(190, 220, 230, 220); a.gnd(230, 220)
 a.text(60, 300, "D1: USB bağlıyken kartın 5V hattından", "note")
 a.text(60, 314, "PSU'ya geri beslemeyi engeller.", "note")
 
-# --- U2 ESP32-S3-DevKitC-1
+# --- U2 ESP32 DevKit V1
 ux, uy, uw, uh = 470, 130, 190, 680
 a.rect(ux, uy, uw, uh, "box")
-a.text(ux + uw / 2, uy - 12, "U2 ESP32-S3-DevKitC-1 (N8R8/N8R2)", "ref", "middle")
-lp = {"5V": 190, "GND": 250, "3V3": 330}
+a.text(ux + uw / 2, uy - 12, "U2 ESP32 DevKit V1 (ESP32-WROOM-32, 4 MB)", "ref", "middle")
+lp = {"VIN": 190, "GND": 250, "3V3": 330}
 for n, y in lp.items():
     a.add(f'<circle class="pin" cx="{ux}" cy="{y}" r="3"/>'); a.text(ux + 8, y + 4, n, "pinl")
 Y4, Y5, Y6, Y7, Y15, Y17 = 190, 390, 540, 650, 710, 770
-for n, y in (("GPIO4", Y4), ("GPIO5", Y5), ("GPIO6", Y6), ("GPIO7", Y7), ("GPIO15", Y15), ("GPIO17", Y17)):
+for n, y in (("GPIO4", Y4), ("GPIO25", Y5), ("GPIO26", Y6), ("GPIO32", Y7), ("GPIO33", Y15), ("GPIO13", Y17)):
     a.add(f'<circle class="pin" cx="{ux+uw}" cy="{y}" r="3"/>'); a.text(ux + uw - 8, y + 4, n, "pinl", "end")
 a.text(ux + 14, 430, "Kart üstünde:", "lbl")
-a.text(ux + 14, 446, "BOOT buton → GPIO0", "lbl"); a.text(ux + 14, 462, "RGB WS2812 → GPIO48", "lbl")
-a.text(ux + 14, 478, "(v1.1 kart: GPIO38)", "lbl"); a.text(ux + 14, 494, "USB-UART → GPIO43/44", "lbl")
-a.text(ux + 14, 510, "3.3 V LDO (kart)", "lbl")
-a.text(ux + 14, 580, "Kullanılmaz: 0/3/45/46", "lbl"); a.text(ux + 14, 596, "19/20, 26–37, 43/44", "lbl")
+a.text(ux + 14, 446, "BOOT buton → GPIO0", "lbl"); a.text(ux + 14, 462, "Mavi LED → GPIO2", "lbl")
+a.text(ux + 14, 478, "USB-UART CP2102/CH340", "lbl"); a.text(ux + 14, 494, "→ GPIO1/3", "lbl")
+a.text(ux + 14, 510, "3.3 V LDO AMS1117 (kart)", "lbl")
+a.text(ux + 14, 580, "Kullanılmaz: strap 0/2/5/12/15,", "lbl"); a.text(ux + 14, 596, "flash 6–11, 14, 34–39 (giriş)", "lbl")
 a.poly([(ux, 190), (420, 190), (420, 160)]); a.flag(420, 160, "+5V")
 a.line(ux, 250, 440, 250); a.gnd(440, 250)
 a.poly([(ux, 330), (420, 330), (420, 310)]); a.flag(420, 310, "+3V3")
@@ -118,5 +118,5 @@ a.text(110, 778, "→ Q1/Q2 kollektörü", "lbl", "middle")
 a.text(220, 650, "SSR çıkışına şebeke", "note"); a.text(220, 664, "bağlanmaz; röle kontak", "note"); a.text(220, 678, "tarafı boş.", "note")
 a.text(220, 706, "LED yanık = R komutlu", "note"); a.text(220, 720, "(fiziksel geri bildirim", "note"); a.text(220, 734, "değildir).", "note")
 
-sheet1 = a.svg(W1, H1, "Sayfa 1: ESP32-S3 kartı, 5 V besleme, DHT22 sensörü, iki SSR sürücü transistörü ve 2 kanallı röle modülü bağlantıları", "s1")
+sheet1 = a.svg(W1, H1, "Sayfa 1: ESP32 DevKit V1 kartı, 5 V besleme, DHT22 sensörü, iki SSR sürücü transistörü ve 2 kanallı röle modülü bağlantıları", "s1")
 open('sheet1.svg', 'w').write(sheet1)

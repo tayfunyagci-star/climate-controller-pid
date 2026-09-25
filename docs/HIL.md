@@ -1,18 +1,18 @@
 # F2 Donanımlı Test (HIL) Prosedürü
 
-Durum: F2 · 25.09.2026 · **Karta yükleme yalnız kullanıcının açık talimatıyla.** İlk HIL'de şebeke bağlanmaz: SSR girişlerine LED (seri direnç) takılır, röle modülünün kontak tarafı boştur.
+Durum: F2.1 · 25.09.2026 · hedef ESP32 DevKit V1 · şema [hardware/CC-SCH-01.html](hardware/CC-SCH-01.html) · **Karta yükleme yalnız kullanıcının açık talimatıyla.** İlk HIL'de şebeke bağlanmaz: SSR girişlerine LED (seri direnç) takılır, röle modülünün kontak tarafı boştur.
 
 ## 1. Düzenek
 
 | Hat | Bağlantı (HIL-1) | Not |
 |---|---|---|
-| GPIO5 → R1 sürücü | NPN/MOSFET + SSR girişi **veya** 1 kΩ + LED | Tabanda 10 kΩ pull-down |
-| GPIO6 → R2 sürücü | aynı | |
-| GPIO7 → HF röle IN | Röle modülü (JD-VCC 5 V, VCC 3.3 V, jumper sökülü) | IN'de 10 kΩ pull-up → 3.3 V |
-| GPIO15 → VF röle IN | aynı | |
+| GPIO25 → R1 sürücü | NPN + SSR girişi **veya** 1 kΩ + LED | Tabanda 10 kΩ pull-down |
+| GPIO26 → R2 sürücü | aynı | |
+| GPIO32 → HF röle IN | Röle modülü (JD-VCC 5 V, VCC 3.3 V, jumper sökülü) | IN'de 10 kΩ pull-up → 3.3 V |
+| GPIO33 → VF röle IN | aynı | |
 | GPIO4 ↔ DHT22 DATA | 4.7 kΩ pull-up → 3.3 V, 100 nF | Kablo ≤ 20 m |
-| GPIO0 | Kartın BOOT butonu | |
-| UART0 (USB-UART) | Seri konsol 115200 | `pio device monitor` |
+| GPIO0 / GPIO2 | Kartın BOOT butonu / mavi durum LED'i | |
+| UART0 (USB-UART, GPIO1/3) | Seri konsol 115200 | `pio device monitor` |
 
 Şebeke tarafı (HIL-2, lamba/düşük güçlü yük) ancak HIL-1 maddeleri geçtikten ve termik kesici/sigorta/RCD/PE (checklist 10) kurulduktan sonra yapılır.
 
@@ -20,12 +20,12 @@ Durum: F2 · 25.09.2026 · **Karta yükleme yalnız kullanıcının açık talim
 
 ```
 pio test -e native            # önce: 16 paket / 189 test
-pio run -e esp32-s3-hil       # HIL imajı (sim/hang komutları)
-pio run -e esp32-s3-hil -t upload     # yalnız açık talimatla
+pio run -e esp32dev-hil        # HIL imajı (sim/hang komutları)
+pio run -e esp32dev-hil -t upload     # yalnız açık talimatla
 pio device monitor
 ```
 
-Üretim imajı (`esp32-s3-devkitc-1`) `sim` ve `hang` komutlarını içermez.
+Üretim imajı (`esp32dev`) `sim` ve `hang` komutlarını içermez.
 
 ## 3. Test listesi
 

@@ -59,7 +59,7 @@ function setpointForm(prefix) {
 }
 
 builders.overview = sec => {
-  sec.append(sectionHead('Genel Bakış'));
+  sec.append(sectionHead('Genel Bakış'), apSetupPanel());
   // PROSES
   const t1 = h('span', {class: 'gauge-value num', id: 'ov-t1'}, '—');
   const rh = h('span', {class: 'gauge-value sm num', id: 'ov-rh'}, '—');
@@ -114,6 +114,7 @@ builders.overview = sec => {
     h('p', {class: 'field-hint', text: 'Gösterilen çıkış durumu komutlanan çıkıştır; fiziksel geri bildirim (akım/RPM) yoktur.'})));
   pageUpdaters.overview = (d, st) => {
     if (!d) return;
+    updateApPanel(d);
     setText($('#ov-t1'), fmt.t(d.temperature));
     if ($('#ov-t1').childNodes.length === 1) $('#ov-t1').append(h('small', {text: '°C'}));
     setText($('#ov-rh'), fmt.t(d.humidity));

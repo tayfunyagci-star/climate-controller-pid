@@ -12,8 +12,7 @@ const DEF = {
       ['staticEnabled', 'Statik IP kullan', 'checkbox', {hint: 'Kapalıyken adres DHCP ile alınır. Statik bağlantı kurulamazsa cihaz DHCP’ye döner.'}],
       ['staticIP', 'IP adresi', 'ip', {req: 1, dep: 'staticEnabled'}], ['gateway', 'Ağ geçidi', 'ip', {req: 1, dep: 'staticEnabled'}],
       ['subnet', 'Alt ağ maskesi', 'ip', {req: 1, dep: 'staticEnabled'}],
-      ['dns1', 'Birincil DNS', 'ip', {dep: 'staticEnabled', hint: 'Boşsa ağ geçidi kullanılır.'}], ['dns2', 'İkincil DNS', 'ip', {dep: 'staticEnabled'}],
-      ['ap_policy', 'Kurulum AP politikası', 'select', {opts: SEL(['ON_WIFI_FAIL', 'Wi-Fi 5 dk yoksa aç'], ['FIRST_SETUP_ONLY', 'Yalnız ilk kurulumda']), hint: 'AP açılması kontrolü etkilemez.'}]]]],
+      ['dns1', 'Birincil DNS', 'ip', {dep: 'staticEnabled', hint: 'Boşsa ağ geçidi kullanılır.'}], ['dns2', 'İkincil DNS', 'ip', {dep: 'staticEnabled'}]]]],
   mqtt: [
     ['Broker', [
       ['mqtt_host', 'Broker adresi', 'text', {ml: 63, hint: 'Boş = MQTT kapalı. Yerel kontrol broker olmadan çalışır.'}],
@@ -362,15 +361,9 @@ builders.settings = sec => {
       if (!(await confirmDlg('Sayaç sıfırlama', (cnt.value === 'all' ? 'Bütün çıkışların' : cnt.options[cnt.selectedIndex].text + ' çıkışının') + ' çalışma saati ve anahtarlama sayacı sıfırlanacak. Önceki değer olay günlüğüne yazılır. Çıkışlar etkilenmez.', 'Sıfırla', true))) return;
       try { await api('/api/service/reset-counters', {out: cnt.value}); toast('Sayaçlar sıfırlandı'); } catch (err) { toast(err.message, true); }
     });
-    const ssid = h('input', {id: 'f-ssid', maxlength: '32', autocomplete: 'off'});
-    ssid.value = d.ssid || '';
-    const wpass = h('input', {type: 'password', id: 'f-wpass', maxlength: '64', autocomplete: 'new-password'});
-    const wBtn = h('button', {type: 'button', 'data-icon': 'wifi', 'data-text': ''}, 'Kablosuz ağı kaydet');
-    wBtn.addEventListener('click', async () => {
-      if (!ssid.value) { ssid.reportValidity(); return; }
-      if (!(await confirmDlg('Kablosuz ağ', 'Cihaz “' + ssid.value + '” ağına bağlanmayı deneyecek. Bağlanamazsa kurulum AP’si açılır; kontrol etkilenmez. Devam edilsin mi?', 'Kaydet'))) return;
-      try { await api('/api/wifi', {ssid: ssid.value, pass: wpass.value}); wpass.value = ''; toast('Kablosuz ağ kaydedildi'); } catch (err) { toast(err.message, true); }
-    });
+    const curSsid = h('dd', {id: 'cur-ssid', class: 'mono'}, d.ssid || 'Tanımlı değil (AP kurulum modu)');
+    const wBtn = h('button', {type: 'button', 'data-icon': 'wifi', 'data-text': ''}, 'Ağ tara ve değiştir');
+    wBtn.addEventListener('click', openWifiDialog);
     const otaFile = h('input', {type: 'file', id: 'ota-file', accept: '.bin'});
     const otaPw = h('input', {type: 'password', id: 'ota-pw', maxlength: '64', autocomplete: 'off'});
     const otaBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
@@ -385,10 +378,10 @@ builders.settings = sec => {
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'svc-enter-pin', text: 'Servis PIN’i'}), svcPin,
         h('small', {class: 'field-hint', text: 'Çıkış testleri Çıkışlar sayfasında açılır: tek seferde tek rezistans, en çok 120 s, interlock’lar etkin.'})),
         h('div', {class: 'field'}, h('span', {class: 'lbl', text: 'İşlem'}), svcBtn)),
-      h('h4', {class: 'group-heading', text: 'Kablosuz bağlantı'}),
-      h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'f-ssid', text: 'Wi-Fi adı (SSID)'}), ssid),
-        h('div', {class: 'field'}, h('label', {for: 'f-wpass', text: 'Wi-Fi parolası'}), wpass, h('small', {class: 'field-hint', text: 'Boş = açık ağ.'})),
-        h('div', {class: 'full btn-row'}, wBtn)),
+      h('h4', {class: 'group-heading', text: 'Kablosuz bağlantıyı değiştir'}),
+      h('dl', {class: 'kv'}, h('dt', {text: 'Kayıtlı ağ'}), curSsid, h('dt', {text: 'Parola'}), h('dd', {text: d.passSet ? 'Kayıtlı' : 'Yok (açık ağ)'})),
+      h('div', {class: 'btn-row'}, wBtn),
+      h('p', {class: 'field-hint', text: 'Yeni ağ seçildiğinde cihaz yeniden başlamadan geçiş yapar. Bağlanamazsa 20 s sonra kurulum AP’si açılır ve kayıtlı ağ 5 dakikada bir yeniden denenir.'}),
       h('h4', {class: 'group-heading', text: 'Firmware'}),
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile),
         h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw),
@@ -397,7 +390,7 @@ builders.settings = sec => {
       h('div', {class: 'btn-row'}, cnt, cntBtn),
       h('div', {class: 'btn-row'},
         act('Yeniden başlat', 'reboot', false, 'Yeniden başlatma', 'Rezistanslar kapatılıp soğutma tamamlandıktan sonra cihaz yeniden başlatılsın mı?', '/api/reboot'),
-        act('Wi-Fi bilgilerini sil ve AP başlat', 'wifioff', true, 'Wi-Fi sıfırlama', 'Yalnız Wi-Fi adı ve parolası silinecek, statik IP kapatılacak. Cihaz AP kurulum modunda yeniden başlayacak; kontrol çalışmaya devam eder. Devam edilsin mi?', '/api/reset-wifi'),
+        act('Wi-Fi bilgilerini sil ve AP başlat', 'wifioff', true, 'Wi-Fi sıfırlama', 'Yalnız Wi-Fi adı ve parolası silinecek, statik IP kapatılacak. Cihaz yeniden başlamadan AP kurulum moduna geçer; kontrol çalışmaya devam eder. Devam edilsin mi?', '/api/reset-wifi'),
         act('Fabrika ayarlarına dön', 'factory', true, 'Fabrika ayarları', 'Ağ, parola, ayarlar, kilitli olmayan alarmlar ve sayaçlar silinecek; güvenlik limitleri varsayılana döner. Fabrika ayarlarına dönülsün mü?', '/api/factory-reset')),
       h('p', {class: 'field-hint', text: 'Yeniden başlatmada rezistanslar donanım pull-down’ları ile kapalı kalır; mod ve ayarlar korunur.'})));
   }

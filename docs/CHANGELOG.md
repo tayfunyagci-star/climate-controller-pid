@@ -209,3 +209,41 @@ Kaçınılan pinler: strapping 0/2/5/12/15 (0 yalnız buton girişi, 2 yalnız L
 ### Not
 
 - 4 MB flash'ta F4 web varlıkları (≈ 33 KB gzip UI + ≈ 105 KB font) LittleFS yerine firmware içine gömülür (baseline §11); LittleFS 384 KB yalnız config/olay/program dosyaları içindir.
+
+## F2.2 — AP kurulum ve Wi-Fi bağlantı senaryoları (SCADA ailesi) (25.09.2026)
+
+Kullanıcı isteği: ilk açılışta AP modu, sonra Wi-Fi bağlantısı; bağlantı senaryoları diğer SCADA projeleriyle aynı davranış ve aynı arayüzlerle; `platformio.ini`'de OTA parametreleri yorum olarak. Ayrıntı: [NETWORK.md](NETWORK.md) (D-23).
+
+### Referans alınan uygulamalar (salt okuma)
+
+- `4chRelayModule/include/network.h` (`wifiTick`, `beginWifiAttempt`, `startAP`) ve `web_api.h` (`/scan {pending, networks}`, `/api/reset-wifi`, Wi-Fi diyaloğu → `/api/settings {ssid, pass}`).
+- `Flowmeter ESP32/src/main.cpp` (`SCADA_AP_<chipId>`, `12345678`, 192.168.4.1, statik → DHCP düşüşü, 5 dk Auto-Recovery, captive yönlendirme) ve `tools/ui` AP kurulum paneli.
+
+### Eklenenler
+
+- `lib/core/src/cc_netfsm.*` — bağlantı yaşam döngüsü durum makinesi (saf) + `parseIpv4`, `validStaticIpv4`; `test/native/test_netfsm` 9 test.
+- `src/app/net_manager.*` — NetTask (çekirdek 0, öncelik 3): FSM, AP + captive DNS, STA (statik/DHCP), mDNS, ArduinoOTA (parolalı), SNTP; ayarlar NVS `net` alanında. `net_clock.*` kaldırıldı.
+- `src/app/web.*` — WebServer: gzip UI varlıkları (CSP, immutable önbellek), `/api/data`, `/api/cmd`, `/scan`, `/api/settings` (GET tüm konfigürasyon; POST Ağ bölümü + Wi-Fi), `/api/reset-wifi`, `/api/reboot`, `/api/events`, `/api/alarms` (+ack/reset), `/api/programs` (GET), captive yönlendirme; kalan uçlar `501` (F4).
+- `tools/ui/assemble.py` → `include/ui_generated.h` (gzip 9, mtime 0, `?v=` içerik özeti; 165 KB → 48.6 KB); `tools/prebuild.py` PlatformIO ön derleme adımı.
+- UI: Genel Bakış'ta **AP · KURULUM MODU** paneli, aile standardı Wi-Fi diyaloğu (tarama, sinyal, kilit, açık ağ, yeniden tara), Bakım › “Kablosuz bağlantıyı değiştir”, genel uyarılar (AP modu, statik → DHCP notu). Ağ bölümünden `ap_policy` alanı kaldırıldı (davranış aile standardında sabit). Sahte cihaza AP modu, `/scan`, Wi-Fi kaydı, Wi-Fi silme eklendi.
+- Konsol: `wifi` / `ntp` web ile aynı doğrulama yolundan; `otapass`, `ota`; durum satırında ağ fazı, AP adı, OTA durumu. BOOT butonu 10 s → Wi-Fi sil + AP. Boştayken AP'de LED yavaş yanıp söner.
+- Çekirdek: olay kodları `NET_AP_ON/OFF`, `NET_CONNECTED`, `NET_DISCONNECTED`, `NET_DHCP_FALLBACK`, `NET_WIFI_CHANGED`, `NET_WIFI_CLEARED`, `OTA_START`, `OTA_FAIL`; `noteEvent()`, `guard()`, `serviceTestOn()` erişimcileri.
+- `platformio.ini`: `espressif32@6.13.0` (Flowmeter ESP32 ile aynı), `lib_deps ArduinoJson 7.4.3`, `extra_scripts`, espota parametreleri yorum satırı olarak.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (bulut, g++ 13 + Unity) | 17 paket / 198 test geçti; ASan/UBSan temiz |
+| ESP32 hedef derleme (arduino-cli, Arduino-ESP32 2.0.17, ArduinoJson 7.4.3, `-Wall -Wextra`) | Üretim ve HIL imajı uyarısız; üretim flash 963 473 B (1.75 MB app bölümünün % 52'si), statik RAM 69 796 B |
+| UI (Playwright, 2 tema × 1280/390 px) | AP paneli, tarama (bekleme → liste, 5 GHz ve yinelenen ağ elenir), kısa parola reddi, kaydet → AP kapanır, Bakım sayfası; yatay taşma ve JS hatası yok |
+| `pio run`, HIL H16–H22 | **Yapılmadı** — kullanıcı makinesinde ve açık talimatla |
+
+### Tasarımdan sapmalar
+
+1. **AP adı ve politikası aile standardına alındı (D-23).** SYSTEM_ARCHITECTURE §6'daki `KulubeIklim-XXXX` ve CONFIGURATION_MODEL'deki `ap_policy` (FIRST_SETUP_ONLY / ON_WIFI_FAIL) yerine `SCADA_AP_<id>`, ortak parola ve “bağlanamazsa AP + 5 dk deneme” davranışı. Kullanıcı kararı: diğer SCADA projeleriyle aynı.
+2. **AP açıkken Genel Bakış gizlenmez.** Referans UI AP modunda gösterge panelini gizler; bu cihazda AP, Wi-Fi kaybında da açıldığı ve kontrol sürdüğü için panel üstte, proses göstergeleri altta kalır.
+3. **Wi-Fi değişimi yeniden başlatmadan uygulanır** (4chRelayModule ile aynı; Flowmeter yeniden başlatır). Kontrol görevleri etkilenmez.
+4. **OTA parolasız açılmaz** (D-17) — 4chRelayModule'ün parolasız varsayılanı alınmadı.
+5. **Oturum yok (F4).** Yazma uçları yalnız `X-SCADA` başlığıyla korunur; SECURITY §2'deki parola/oturum F4'te.
+6. Ağ ayarları NVS'e doğrudan yazılır (StorageTask tek sahipliği F3'te; F2 sapma 4'ün devamı).

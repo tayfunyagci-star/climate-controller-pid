@@ -22,7 +22,7 @@ const cfg = {
   user: 'admin', guestRead: false, session_hours: 8,
   temperature_setpoint: 22, setpoint_night: 18, setpoint_away: 12, setpoint_boost: 23, operating_mode: 'AUTO', profile: 'DAY', manual_heat_demand: 40
 };
-const flags = {speed: 10, unplug: false, overtemp: false, broker: true, control: 'apply', offline: false};
+const flags = {ap: false, scanN: 0, speed: 10, unplug: false, overtemp: false, broker: true, control: 'apply', offline: false};
 const S = {
   t: 0, T: 16.8, Tout: -2, RH: 58, Tf: 16.8, cfgRev: 44, seq: 0, boot: 37,
   sched_night: false, sched_away: false, boost: false, boostT: 0, ctrlEnable: true, hfMan: false, vfMan: false, vfManT: 0, lockMs: 0,
@@ -336,8 +336,9 @@ function data() {
   const hi = al.reduce((m, a) => rank[a.sev] > rank[m] ? a.sev : m, 'NORMAL');
   return {
     v: 1, seq: S.seq, ts: Math.floor(S.epoch + S.t / 1000), uptime: Math.floor(86400 + S.t / 1000),
-    device_name: c.adN, ip: '192.168.1.57', mdns: c.mdns, client_ip: '192.168.1.20', fw_version: '1.0.0', fw_build: 'r12',
-    wifi_ok: true, wifi_rssi: -61, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', time_valid: 'ON', password_set: true,
+    ap_mode: flags.ap, ap_name: 'SCADA_AP_3C71BF4A', ap_ip: '192.168.4.1', wifi_ssid: flags.ap ? (flags.ssid || '') : 'Kulube-Ag', net_note: '',
+    device_name: c.adN, ip: flags.ap ? '192.168.4.1' : '192.168.1.57', mdns: c.mdns, client_ip: '192.168.1.20', fw_version: '1.0.0', fw_build: 'r12',
+    wifi_ok: !flags.ap, wifi_rssi: flags.ap ? null : -61, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', time_valid: 'ON', password_set: true,
     temperature: ok ? +S.Tf.toFixed(1) : null, humidity: +S.RH.toFixed(1), temperature_quality: q, humidity_quality: 'GOOD', t2: null, t2_quality: 'DISABLED',
     sensor_ok: onoff(q === 'GOOD'), sensor_age_s: Math.round((S.t - S.lastGood) / 1000),
     temperature_setpoint: c.temperature_setpoint, setpoint_effective: +S.eff.toFixed(2), setpoint_source: S.src,
@@ -440,7 +441,7 @@ const json = (o, status) => new Response(JSON.stringify(o), {status: status || 2
 const realFetch = window.fetch.bind(window);
 window.fetch = async function (url, opt) {
   const u = new URL(url, location.href);
-  if (!u.pathname.startsWith('/api/')) return realFetch(url, opt);
+  if (!u.pathname.startsWith('/api/') && u.pathname !== '/scan') return realFetch(url, opt);
   await new Promise(r => setTimeout(r, R(20, 70)));
   if (flags.offline) return json({message: 'Cihaza ulaşılamıyor'}, 503);
   const body = opt && opt.body ? JSON.parse(opt.body) : null;
@@ -469,8 +470,25 @@ window.fetch = async function (url, opt) {
     return json({message: 'Kaydedildi'});
   }
   if (p === '/api/trend') return json(trend(Number(u.searchParams.get('win')) || 900));
+  if (p === '/scan') {
+    if (flags.scanN++ < 2) return json({pending: true, networks: []});
+    flags.scanN = 0;
+    return json({pending: false, networks: [
+      {ssid: 'Kulube-Ag', rssi: -58, secure: true, channel: 6}, {ssid: 'Kulube-Ag', rssi: -71, secure: true, channel: 11},
+      {ssid: 'Misafir', rssi: -69, secure: false, channel: 1}, {ssid: 'TurkTelekom_ZX91', rssi: -80, secure: true, channel: 9},
+      {ssid: 'Atolye 5G', rssi: -62, secure: true, channel: 36}]});
+  }
+  if (p === '/api/settings' && body && 'ssid' in body && Object.keys(body).every(k => k === 'ssid' || k === 'pass')) {
+    if (!body.ssid || body.ssid.length > 32) return json({message: 'SSID 1–32 karakter olmalı', field: 'ssid'}, 400);
+    if (body.pass && (body.pass.length < 8 || body.pass.length > 64)) return json({message: 'Wi-Fi parolası 8–64 karakter veya boş (açık ağ) olmalı', field: 'pass'}, 400);
+    flags.ssid = body.ssid; flags.passSet = !!body.pass;
+    ev('WARNING', 'NET', 'Wi-Fi kimliği değişti: ' + body.ssid);
+    setTimeout(() => { flags.ap = false; ev('INFO', 'NET', 'Wi-Fi bağlandı (' + body.ssid + ')'); }, 4000);
+    return json({message: 'Wi-Fi kaydedildi; cihaz “' + body.ssid + '” ağına geçiyor'});
+  }
+  if (p === '/api/reset-wifi') { flags.ap = true; flags.ssid = ''; ev('WARNING', 'NET', 'Wi-Fi kimliği silindi; kurulum AP’si açıldı'); return json({message: 'Wi-Fi silindi; kurulum AP’si açıldı (SCADA_AP_3C71BF4A)'}); }
   if (p === '/api/settings' && !body) {
-    const out = Object.assign({}, cfg, {otaPasswordSet: true, mqPwSet: true, servicePinSet: true, ssid: 'Kulube-Ag'});
+    const out = Object.assign({}, cfg, {otaPasswordSet: true, mqPwSet: true, servicePinSet: true, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
     return json(out);
   }
   if (p === '/api/settings') {
@@ -523,7 +541,7 @@ window.fetch = async function (url, opt) {
   }
   if (p === '/api/service/reset-counters') { ev('WARNING', 'SERVICE', 'Sayaçlar sıfırlandı: ' + body.out); return json({message: 'Sayaçlar sıfırlandı'}); }
   if (p === '/api/ota/begin') return json({message: 'Önizleme: firmware yazılmaz'}, 409);
-  if (['/api/reboot', '/api/reset-wifi', '/api/factory-reset', '/api/wifi'].includes(p)) return json({message: 'Önizleme: cihaz işlemi yapılmadı'});
+  if (['/api/reboot', '/api/factory-reset'].includes(p)) return json({message: 'Önizleme: cihaz işlemi yapılmadı'});
   return json({message: 'Bilinmeyen uç: ' + p}, 404);
 };
 
@@ -542,6 +560,7 @@ function panel() {
     '<label><input type="checkbox" id="mk-broker" checked> MQTT broker erişilebilir</label>' +
     '<label>Komut <select id="mk-ctl"><option value="apply">uygula</option><option value="delay">gecikmeli</option><option value="reject">reddet (503)</option></select></label>' +
     '<label><input type="checkbox" id="mk-off"> Cihaz çevrimdışı (bayat veri)</label>' +
+    '<label><input type="checkbox" id="mk-ap"> AP kurulum modu</label>' +
     '<label>Dış sıcaklık <select id="mk-out"><option value="-10">−10 °C</option><option value="-2" selected>−2 °C</option><option value="10">10 °C</option><option value="30">30 °C</option></select></label>' +
     '<span>Başlangıçta 3 sa geçmiş simüle edildi. Firmware işlemleri yapılmaz.</span></div>';
   document.body.append(d);
@@ -552,6 +571,8 @@ function panel() {
   g('mk-broker').onchange = e => { flags.broker = e.target.checked; };
   g('mk-ctl').onchange = e => { flags.control = e.target.value; };
   g('mk-off').onchange = e => { flags.offline = e.target.checked; };
+  g('mk-ap').onchange = e => { flags.ap = e.target.checked; };
+  setInterval(() => { if (g('mk-ap').checked !== flags.ap) g('mk-ap').checked = flags.ap; }, 1000);
   g('mk-out').onchange = e => { S.Tout = Number(e.target.value); };
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', panel); else panel();

@@ -70,6 +70,7 @@ void rtcClearFaultBoots() {
   if (s_rtc.fault_boots) { s_rtc.fault_boots = 0; seal(); }
 }
 uint8_t rtcFaultBoots() { return s_rtc.fault_boots; }
+const char* resetReasonName() { return reasonName(esp_reset_reason()); }
 void rtcMarkSwFault() { s_rtc.sw_fault = 1; s_rtc.heater_was_on = 1; seal(); }
 
 }  // namespace app

@@ -21,6 +21,7 @@ void rtcSetSafetyLatched(uint8_t mask);
 // Sağlıklı çalışma süresi pencereyi aşınca hatalı boot sayacı sıfırlanır (restart fırtınası penceresi)
 void rtcClearFaultBoots();
 uint8_t rtcFaultBoots();
+const char* resetReasonName();   // son reset nedeni (tanı)
 // Acil yazılım reseti öncesi: sonraki boot hatalı sayılır ve post-cool yapılır
 void rtcMarkSwFault();
 

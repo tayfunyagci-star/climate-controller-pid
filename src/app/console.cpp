@@ -5,7 +5,8 @@
 #include "boot_state.h"
 #include "hal_led.h"
 #include "hal_outputs.h"
-#include "net_clock.h"
+#include "pins.h"
+#include "net_manager.h"
 #include "tasks.h"
 
 namespace app {
@@ -71,9 +72,14 @@ void printStatus() {
   Serial.printf("CIKIS R1=%s R2=%s HF=%s VF=%s  | neden R1=%s R2=%s HF=%s VF=%s\n", onoff(outs[0]), onoff(outs[1]),
                 onoff(outs[2]), onoff(outs[3]), cc::name(s.reason[0]), cc::name(s.reason[1]), cc::name(s.reason[2]),
                 cc::name(s.reason[3]));
-  Serial.printf("alarm=%s aktif=%u onaysiz=%u  program=%d saat=%s  wifi=%s %s rssi=%d ntp=%s\n", cc::name(s.alarm_state),
-                s.active_alarm_count, s.unacked_alarm_count, s.program_index, s.time_valid ? "gecerli" : "BEKLENIYOR",
-                net::wifiOk() ? "bagli" : (net::wifiConfigured() ? "YOK" : "tanimsiz"), net::ipString(), net::rssi(), net::ntpServer());
+  const net::Status ns = net::status();
+  Serial.printf("alarm=%s aktif=%u onaysiz=%u  program=%d saat=%s\n", cc::name(s.alarm_state), s.active_alarm_count,
+                s.unacked_alarm_count, s.program_index, s.time_valid ? "gecerli" : "BEKLENIYOR");
+  Serial.printf("ag: %s  ssid='%s' ip=%s rssi=%d  AP=%s%s  mDNS=%s.local  OTA=%s  %s\n",
+                ns.sta_ok ? "BAGLI" : (ns.configured ? "BAGLANAMADI" : "KURULUM"), ns.ssid, ns.ip, ns.rssi,
+                ns.ap_mode ? ns.ap_name : "kapali", ns.ap_mode ? " (192.168.4.1, sifre etikette)" : "",
+                net::settings().mdns, ns.ota_ready ? "hazir" : (net::otaPasswordSet() ? "baglanti bekliyor" : "kapali (otapass)"),
+                ns.note);
   Serial.printf("gorev yas(ms) saf=%lu out=%lu ctl=%lu sen=%lu | azami(us) %lu/%lu/%lu/%lu | kilit zaman asimi=%lu\n",
                 (unsigned long)ts.age_ms[0], (unsigned long)ts.age_ms[1], (unsigned long)ts.age_ms[2], (unsigned long)ts.age_ms[3],
                 (unsigned long)ts.max_us[0], (unsigned long)ts.max_us[1], (unsigned long)ts.max_us[2], (unsigned long)ts.max_us[3],
@@ -95,8 +101,10 @@ void printHelp() {
       "  ack | reset           alarm onayi / guvenlik kilidi sifirlama\n"
       "  service on|off        servis modu;  test <0-3> on|off  servis cikis testi (R1 R2 HF VF)\n"
       "  recovery              restart firtinasi sonrasi operator onayi\n"
-      "  wifi <ssid> [parola]  kimligi NVS'e yaz ve baglan (parola yazdirilmaz);  wifi clear\n"
+      "  wifi <ssid> [parola]  Wi-Fi kaydet ve baglan (parola yazdirilmaz);  wifi clear -> kurulum AP'si\n"
       "  ntp <sunucu>          NTP sunucusu (varsayilan pool.ntp.org; 2. sunucu ag gecidi)\n"
+      "  otapass <parola>|clear  OTA parolasi (8-64; parolasiz OTA yok, D-17)\n"
+      "  ota                   OTA hazirligi: isitma durur, post-cool biter; sonra pio -t upload\n"
       "  reboot                guvenli yeniden baslatma\n"
 #ifdef CC_HIL
       "HIL (yalniz hil imaji):\n"
@@ -142,12 +150,30 @@ void execute(char* line) {
     locked([&] { r = core().serviceTest((uint8_t)k, !strcmp(argv[2], "on"), src); });
     printReply("test", r);
   } else if (!strcmp(c, "wifi") && argc >= 2) {
-    if (!strcmp(argv[1], "clear")) Serial.println(net::clearCredentials() ? "wifi kimligi silindi" : "hata");
-    else Serial.println(net::setCredentials(argv[1], argc >= 3 ? argv[2] : "") ? "kaydedildi, baglaniliyor" :
-                        "reddedildi (SSID 1-32, parola bos veya 8-64)");
-    // Satır tamponunda kalan parolayı sil
+    const char* err = nullptr;
+    const char* field = nullptr;
+    if (!strcmp(argv[1], "clear")) Serial.println(net::resetWifi(&err) ? "wifi kimligi silindi; kurulum AP'si aciliyor" : err);
+    else {
+      const bool ok = net::apply(net::settings(), argv[1], argc >= 3 ? argv[2] : "", &err, &field, nullptr);
+      Serial.println(ok ? "kaydedildi, baglaniliyor" : err);
+    }
+    memset(g_line, 0, sizeof g_line);   // satır tamponunda kalan parolayı sil
+  } else if (!strcmp(c, "ntp") && argc >= 2) {
+    net::NetSettings n = net::settings();
+    strncpy(n.ntp, argv[1], sizeof n.ntp - 1);
+    const char* err = nullptr;
+    const char* field = nullptr;
+    Serial.println(net::apply(n, nullptr, nullptr, &err, &field, nullptr) ? "kaydedildi" : err);
+  } else if (!strcmp(c, "otapass") && argc >= 2) {
+    const char* err = nullptr;
+    const bool ok = net::setOtaPassword(!strcmp(argv[1], "clear") ? "" : argv[1], &err);
+    Serial.println(ok ? (strcmp(argv[1], "clear") ? "OTA parolasi kaydedildi (yalniz ozet saklanir)" : "OTA kapatildi") : err);
     memset(g_line, 0, sizeof g_line);
-  } else if (!strcmp(c, "ntp") && argc >= 2) Serial.println(net::setNtpServer(argv[1]) ? "kaydedildi" : "reddedildi");
+  } else if (!strcmp(c, "ota")) {
+    cc::CmdReply r;
+    locked([&] { r = core().otaBegin(src); });
+    printReply("ota hazirlik (isitma durur, post-cool biter, sonra yukleme kabul edilir)", r);
+  }
   else if (!strcmp(c, "reboot")) {
     bool heating = false;
     locked([&] { heating = core().outputs()[cc::R1] || core().outputs()[cc::R2] || core().snapshot().post_cool_remaining_s > 0; });
@@ -195,12 +221,30 @@ void updateLed() {
     g_led = ledFor(core().snapshot().controller_state, core().snapshot().alarm_state);
     coreUnlock();
   }
+  if (g_led == hal::LedPattern::HEARTBEAT && net::status().ap_mode) g_led = hal::LedPattern::SLOW;   // boşta + kurulum AP'si
+}
+
+// BOOT butonu (GPIO0): 10 s basılı tutma → Wi-Fi kimliği silinir, kurulum AP'si açılır (SECURITY §2 kurtarma).
+// Kısa basış yok sayılır; buton boot'ta strapping olduğundan yalnız çalışma sırasında okunur.
+uint32_t g_btn_since = 0;
+bool g_btn_done = false;
+void serviceButton(uint32_t now) {
+  const bool down = gpio_get_level(hw::PIN_BOOT_BTN) == 0;
+  if (!down) { g_btn_since = 0; g_btn_done = false; return; }
+  if (!g_btn_since) { g_btn_since = now ? now : 1; return; }
+  if (!g_btn_done && now - g_btn_since >= 10000) {
+    g_btn_done = true;
+    const char* err = nullptr;
+    Serial.println(net::resetWifi(&err) ? "[BUTON] 10 s: Wi-Fi silindi, kurulum AP'si aciliyor" : err);
+  }
 }
 
 }  // namespace
 
 void consoleBegin(const BootState& bs) {
   g_boot = bs;
+  gpio_set_direction(hw::PIN_BOOT_BTN, GPIO_MODE_INPUT);
+  gpio_pullup_en(hw::PIN_BOOT_BTN);
   hal::ledBegin();
   printHelp();
 }
@@ -224,6 +268,7 @@ void consoleService() {
   const uint32_t now = millis();
   if (now - g_led_ms >= 250) { g_led_ms = now; updateLed(); }
   hal::ledService(g_led, now);
+  serviceButton(now);
   if (g_autostatus && now - g_status_ms >= 10000) { g_status_ms = now; printStatus(); }
 }
 

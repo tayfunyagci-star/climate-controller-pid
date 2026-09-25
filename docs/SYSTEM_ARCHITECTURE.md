@@ -188,7 +188,7 @@ flowchart TD
 | Konu | Karar |
 |---|---|
 | Wi-Fi | STA; statik/DHCP; statik başarısızsa DHCP kurtarma + alarm (baseline §5) |
-| Kurulum | İlk kurulumda AP (`KulubeIklim-XXXX`); AP parolası etiketli; kurulum sonrası kapanır |
+| Kurulum | İlk kurulumda ve bağlanılamadığında AP `SCADA_AP_<id>` (aile standardı, D-23); captive portal; bağlanınca kapanır — [NETWORK.md](NETWORK.md) |
 | Web | HTTP (yerel); oturum çerezi `SameSite=Strict`, yazmada `X-SCADA: 1` başlığı; bkz. [SECURITY.md](SECURITY.md) |
 | Canlı veri | `GET /api/data` 1 s polling, stale 4 s ([ADR-006](ADR/ADR-006-web-live-data.md)) |
 | mDNS | `kulube-iklim.local` (değiştirilebilir); tek erişim yolu değildir, IP görünür |

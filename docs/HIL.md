@@ -46,6 +46,13 @@ pio device monitor
 | H13 | `service on`, `test 0 on` | Servis testi yalnız interlock'la: HF prestart sonra R1; `test 1 on` aynı anda reddedilir | ☐ |
 | H14 | Wi-Fi erişim noktasını kapat | Kontrol etkilenmez; `WIFI_OFFLINE` alarmı; saat geçerli kalır | ☐ |
 | H15 | 24 sa çalıştır, `status` | Heap düşüşü yok, `kilit zaman asimi=0`, görev azami süreleri < 5 ms, DHT hata oranı < % 1 | ☐ |
+| H16 | NVS boş kart (`pio run -t erase` sonrası) ilk açılış | `SCADA_AP_<id>` yayında, LED yavaş; telefonla bağlanınca kurulum sayfası kendiliğinden açılır (açmazsa 192.168.4.1) | ☐ |
+| H17 | Kurulum sayfası → **Wi-Fi seç ve bağlan** → ağ + parola → **Ağı kaydet** | Cihaz yeniden başlamadan bağlanır, AP kapanır; `kulube-iklim.local` ve IP ile açılır; olaylarda `NET_WIFI_CHANGED`, `NET_CONNECTED`, `NET_AP_OFF` | ☐ |
+| H18 | Yanlış parola kaydet | 20 s sonra AP yeniden yayında, panel “bağlanılamadı” der; 5 dk sonra arka plan denemesi (konsol `[NET]` satırı) | ☐ |
+| H19 | Router'ı kapat (cihaz bağlıyken), 2 dk sonra aç | 15 s sonra deneme, başarısızsa AP açılır; router dönünce en geç 5 dk içinde bağlanır, AP kapanır; kontrol hiç etkilenmez | ☐ |
+| H20 | Ayarlar › Ağ: statik IP'yi başka alt ağa ayarla, kaydet | Statik deneme 20 s → DHCP ile bağlanır; genel uyarı “Statik IP ile bağlanılamadı; DHCP ile alınan adres …” | ☐ |
+| H21 | Bakım › **Wi-Fi bilgilerini sil ve AP başlat**; ayrıca BOOT butonu 10 s | Her ikisinde yeniden başlatmadan AP açılır; ısıtma/fan çıkışları değişmez | ☐ |
+| H22 | `otapass <parola>`, `ota`, `platformio.ini` espota satırlarını aç, `pio run -t upload` | Hazırlıksız yükleme iptal + hazırlık; ısıtma durup post-cool bitince yükleme kabul edilir; yeni imaj açılır | ☐ |
 
 Her adımın sonucu ve seri log çıktısı `docs/CHANGELOG.md` F2 bölümüne işlenir. Geçmeyen madde varsa HIL-2'ye geçilmez.
 
@@ -53,4 +60,4 @@ Her adımın sonucu ve seri log çıktısı `docs/CHANGELOG.md` F2 bölümüne i
 
 - **ARM hattı yok:** SafetyTask takılırsa R hattı TWDT süresince (≤ 5 s) son seviyede kalabilir. Bağımsız, elle resetli termik kesici bu yüzden enerjilendirmeden önce zorunludur.
 - **Güç kesintisi:** `heater_was_on` ve kilitli safety bitleri F2'de RTC belleğindedir; yalnız yazılım/WDT resetlerinden sağ çıkar. Güç kesintisine dayanıklı kopya F3'te (StorageTask) eklenir.
-- **Wi-Fi kimliği** F2'de seri konsoldan NVS'e yazılır; web kurulumu F4'te.
+- **Web oturumu yok (F4):** AP ve LAN'daki herkes komut gönderebilir; UI “Web parolası tanımlı değil” uyarısını gösterir. Bağlantı yaşam döngüsü: [NETWORK.md](NETWORK.md).

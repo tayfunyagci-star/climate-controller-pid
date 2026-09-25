@@ -9,7 +9,7 @@
 #include "boot_state.h"
 #include "hal_dht22.h"
 #include "hal_outputs.h"
-#include "net_clock.h"
+#include "net_manager.h"
 
 namespace app {
 

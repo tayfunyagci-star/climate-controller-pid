@@ -5,7 +5,7 @@
 #include "app/boot_state.h"
 #include "app/console.h"
 #include "app/hal_outputs.h"
-#include "app/net_clock.h"
+#include "app/net_manager.h"
 #include "app/tasks.h"
 #include "app/core_api.h"
 

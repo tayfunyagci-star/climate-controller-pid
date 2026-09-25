@@ -148,7 +148,7 @@ Yalnız yerel web, yönetici rolü, onay diyaloğu. Hiçbiri uzaktan yazılamaz.
 
 ### 2.9 Network
 
-Skill kataloğu (scada-ui-design §8.4 Ağ): `adN`→`device_display_name`, `mdns` (`kulube-iklim`), `staticEnabled`, `staticIP`, `gateway`, `subnet`, `dns1`, `dns2`, `ssid`, `pass` (x), `ap_policy` (FIRST_SETUP_ONLY / ON_WIFI_FAIL; varsayılan ON_WIFI_FAIL 5 dk sonra, kontrol etkilenmez). Hepsi P, SC değil, RW değil.
+Skill kataloğu (scada-ui-design §8.4 Ağ): `adN`→`device_display_name`, `mdns` (`kulube-iklim`), `staticEnabled`, `staticIP`, `gateway`, `subnet`, `dns1`, `dns2`, `ssid`, `pass` (x), ~~`ap_policy`~~ (kaldırıldı, D-23: AP davranışı aile standardında sabit — [NETWORK.md](NETWORK.md)). Hepsi P, SC değil, RW değil.
 
 ### 2.10 Web UI / Erişim
 

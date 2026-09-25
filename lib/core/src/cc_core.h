@@ -178,6 +178,12 @@ class ClimateCore {
   const EventRing<200>& events() const { return ev_; }
   uint32_t uptimeMs() const { return up_ms_; }
   bool guardViolationSeen() const { return guard_violation_; }
+  const OutputGuard& guard() const { return guard_; }
+  bool serviceTestOn(uint8_t o) const { return o < OUT_COUNT && svc_test_[o]; }
+  // Platform olayları (ağ, OTA) çekirdek olay halkasına yazılır; proses durumunu değiştirmez
+  void noteEvent(Severity s, EvSrc src, EvCode code, float val = kNaN, CmdSource actor = CmdSource::SYSTEM) {
+    log(s, src, code, val, actor);
+  }
 
  private:
   void commitConfig(const Config& c, bool bumpless);

@@ -241,6 +241,8 @@ function renderGlobalNotices(st) {
     if (D.controller_enable === 'OFF') list.push(['critical', 'Kontrolör kapalı: donma koruması dahil otomatik kontrol devre dışı.']);
     if (D.controller_state === 'SERVICE') list.push(['warn', 'SERVİS MODU etkin · kalan ' + fmt.dur(D.service_remaining_s) + '. Donma koruması devre dışı.']);
     if (D.local_lock === 'ON') list.push(['warn', 'Yerel kilit etkin: MQTT operasyonel komutları reddediliyor.']);
+    if (D.ap_mode) list.push(['warn', 'AP kurulum modu: cihaz “' + (D.ap_name || 'SCADA_AP') + '” ağını yayınlıyor (' + (D.ap_ip || '192.168.4.1') + '). Wi-Fi ağını Genel Bakış’tan veya Ayarlar › Bakım’dan seçin.']);
+    if (D.net_note) list.push(['warn', D.net_note]);
     if (D.password_set === false) list.push(['warn', 'Web parolası tanımlı değil. Ayarlar › Erişim bölümünden parola belirleyin.']);
   }
   const key = JSON.stringify(list);

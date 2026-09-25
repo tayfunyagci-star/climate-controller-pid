@@ -44,6 +44,15 @@ enum class EvCode : uint16_t {
   PROGRAM_END,
   PROGRAM_HOLD,
   PROGRAMS_CHANGED,
+  NET_AP_ON,           // kurulum AP'si açıldı
+  NET_AP_OFF,
+  NET_CONNECTED,
+  NET_DISCONNECTED,
+  NET_DHCP_FALLBACK,   // statik IP başarısız, DHCP ile bağlandı
+  NET_WIFI_CHANGED,    // Wi-Fi kimliği/ağ ayarı değişti (actor)
+  NET_WIFI_CLEARED,
+  OTA_START,
+  OTA_FAIL,
   COUNT_
 };
 const char* name(EvCode);

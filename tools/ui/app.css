@@ -338,3 +338,19 @@ footer.foot{margin-top:18px;font:400 var(--fs-xs) var(--font-mono);color:var(--t
  .identity:not(.open) .id-extra{display:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* AP kurulum paneli ve Wi-Fi diyaloğu (SCADA ailesi) */
+.panel.ap-setup{border:1px dashed var(--warn-line);background:var(--warn-bg);display:grid;gap:8px}
+.panel.ap-setup .eyebrow{color:var(--warn-text)}
+.panel.ap-setup h3{margin:0}
+.steps{margin:0;padding-left:18px;display:grid;gap:3px;font-size:var(--fs-s)}
+.btn-link{font:400 var(--fs-s) var(--font-mono);color:var(--brand);align-self:center}
+.mono{font-family:var(--font-mono)}
+.wifi-list{display:grid;gap:4px;max-height:min(50vh,360px);overflow-y:auto;margin:6px 0}
+.wifi-row{display:grid;grid-template-columns:20px 1fr auto 32px;gap:8px;align-items:center;width:100%;text-align:left;min-height:36px}
+.wifi-row .ssid{overflow-wrap:anywhere;font-family:var(--font-body)}
+svg.sig{width:20px;height:14px}
+svg.sig rect.on{fill:var(--brand)}
+svg.sig rect.off{fill:var(--border-soft)}
+@media (max-width:600px){.wifi-row{min-height:44px}}
+.wifi-row>svg.ico,.wifi-row>.dim:last-child{justify-self:end}

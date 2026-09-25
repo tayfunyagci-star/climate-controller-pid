@@ -77,6 +77,7 @@ function renderAll() {
   const r = currentRoute;
   if (pageUpdaters[r]) pageUpdaters[r](D, stale());
   pending.forEach(p => p.check());
+  wifiTick();
 }
 
 // ---------------------------------------------------------------- komut akışı
@@ -235,13 +236,16 @@ function renderDiag() {
 function renderGlobalNotices(st) {
   const box = $('#global-notices');
   const list = [];
-  if (st) list.push(['critical', 'Veri bayat: son geçerli veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + '. Kumandalar devre dışı.']);
+  // Ağ değişikliği sırasında beklenen kopma: alarm yağmuru yerine tek sakin not (yönergeler Wi-Fi penceresinde)
+  if (st && netTransitionActive()) list.push(['warn', 'Ağ değişikliği sürüyor: bu adresle bağlantı kesildi (son veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + ' önce). Kumandalar devre dışı; kontrol cihazda çalışmaya devam eder.']);
+  else if (st) list.push(['critical', 'Veri bayat: son geçerli veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + '. Kumandalar devre dışı.']);
   if (D) {
     if (D.controller_state === 'FAILSAFE') list.push(['critical', 'GÜVENLİ DURUM · ' + (FAILSAFE_TR[D.failsafe_reason] || D.failsafe_reason) + '. Rezistanslar kapalı.']);
     if (D.controller_enable === 'OFF') list.push(['critical', 'Kontrolör kapalı: donma koruması dahil otomatik kontrol devre dışı.']);
     if (D.controller_state === 'SERVICE') list.push(['warn', 'SERVİS MODU etkin · kalan ' + fmt.dur(D.service_remaining_s) + '. Donma koruması devre dışı.']);
     if (D.local_lock === 'ON') list.push(['warn', 'Yerel kilit etkin: MQTT operasyonel komutları reddediliyor.']);
-    if (D.ap_mode) list.push(['warn', 'AP kurulum modu: cihaz “' + (D.ap_name || 'SCADA_AP') + '” ağını yayınlıyor (' + (D.ap_ip || '192.168.4.1') + '). Wi-Fi ağını Genel Bakış’tan veya Ayarlar › Bakım’dan seçin.']);
+    if (D.ap_mode && D.net_setup !== 'HANDOVER' && !(currentRoute === 'overview' && !setupCollapsed))
+      list.push(['warn', (D.wifi_ssid ? 'Cihaz kayıtlı Wi-Fi ağına bağlanamadı; ' : 'Wi-Fi kurulumu tamamlanmadı; ') + 'kurulum ağı “' + (D.ap_name || 'SCADA_AP') + '” açık (' + (D.ap_ip || '192.168.4.1') + '). Ağ seçimi: Genel Bakış.']);
     if (D.net_note) list.push(['warn', D.net_note]);
     if (D.password_set === false) list.push(['warn', 'Web parolası tanımlı değil. Ayarlar › Erişim bölümünden parola belirleyin.']);
   }

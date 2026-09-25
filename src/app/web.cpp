@@ -19,7 +19,7 @@ namespace {
 WebServer g_srv(80);
 cc::Event g_ev[200];   // olay kopyası (yalnız NetTask)
 
-const char* kFwVersion = "0.2.2";
+const char* kFwVersion = "0.2.3";
 
 void headers(bool api) {
   g_srv.sendHeader("X-Content-Type-Options", "nosniff");
@@ -64,6 +64,26 @@ void sendAsset(const ui::Asset& a) {
 }
 
 const char* onoff(bool b) { return b ? "ON" : "OFF"; }
+
+// Ağ yaşam döngüsü adları (UI sözleşmesi; docs/NETWORK.md §4.1)
+const char* phaseName(uint8_t p) {
+  static const char* const n[] = {"AP_ONLY", "CONNECTING", "ONLINE", "WAITING"};
+  return p < 4 ? n[p] : "?";
+}
+const char* resultName(uint8_t r) {
+  static const char* const n[] = {"NONE", "TRYING", "CONNECTED", "FAILED"};
+  return r < 4 ? n[r] : "?";
+}
+const char* failName(uint8_t f) {
+  static const char* const n[] = {"NONE", "NOT_FOUND", "AUTH", "ASSOC", "NO_IP", "SIGNAL_LOST", "OTHER"};
+  return f < 7 ? n[f] : "OTHER";
+}
+// Kurulum bağlamı: ilk kurulum (SSID yok) / kurtarma (kayıtlı ağa bağlanılamadı) / devir / yok
+const char* setupName(const net::Status& ns) {
+  if (!ns.ap_mode) return "NONE";
+  if (ns.handover) return "HANDOVER";
+  return ns.configured ? "RECOVERY" : "FIRST";
+}
 template <typename T>
 void num(JsonObject o, const char* k, T v) { o[k] = v; }
 void fnum(JsonObject o, const char* k, float v, int dec = 2) {
@@ -217,6 +237,17 @@ void handleData() {
   d["reset_reason"] = app::resetReasonName();
   d["fault_boot_count"] = app::rtcFaultBoots();
   d["wifi_reconnects"] = ns.reconnects;
+  d["net_phase"] = phaseName(ns.phase);
+  d["net_setup"] = setupName(ns);
+  d["net_try"] = ns.try_seq;
+  d["net_result"] = resultName(ns.result);
+  d["net_fail"] = failName(ns.fail);
+  d["net_fail_code"] = ns.fail_code;
+  d["net_retry_s"] = ns.retry_s;
+  d["ap_close_s"] = ns.ap_close_s;
+  d["ap_clients"] = ns.ap_clients;
+  d["sta_ip"] = ns.sta_ip;
+  d["static_ip"] = nc.st;
   fnum(d, "sensor_error_rate_10m", err_rate, 0);
   d["sensor_model"] = "DHT22";
   replyJson(200, doc);
@@ -363,25 +394,46 @@ void settingsPost() {
   const char* pass = b["pass"].is<const char*>() ? b["pass"].as<const char*>() : nullptr;
   if (b["clearWifiPassword"] | false) pass = "";
   // Kimliği değiştirmeyen tekrar gönderim (ana formdaki mevcut SSID) kimlik yazımı sayılmaz
-  const net::Status ns = net::status();
+  const net::Status ns = net::status();   // net_try tabanı: UI bu değerden büyük denemenin sonucunu bekler
   if (ssid && !pass && !strcmp(ssid, ns.ssid)) ssid = nullptr;
   const char* err = nullptr;
   const char* field = nullptr;
   bool reconnect = false;
   if (!net::apply(n, ssid, pass, &err, &field, &reconnect)) { replyMsg(field ? 400 : 507, err, field); return; }
-  char msg[128];
-  if (ssid) snprintf(msg, sizeof msg, "Wi-Fi kaydedildi; cihaz “%s” ağına geçiyor. Bağlanamazsa kurulum ağı yeniden açılır.", ssid);
-  else if (reconnect) snprintf(msg, sizeof msg, "Kaydedildi; ağ bağlantısı yeni ayarlarla yeniden kuruluyor.");
+  // Kayıt ≠ bağlantı: yanıt yalnız kalıcı kaydı onaylar; bağlantı sonucu /api/data net_try/net_result ile izlenir
+  char msg[160];
+  if (ssid) snprintf(msg, sizeof msg, "Ayarlar kaydedildi. Cihaz “%s” ağına bağlanmayı deneyecek.", ssid);
+  else if (reconnect) snprintf(msg, sizeof msg, "Ayarlar kaydedildi. Ağ bağlantısı yeni ayarlarla yeniden kurulacak.");
   else snprintf(msg, sizeof msg, "Kaydedildi");
-  replyMsg(200, msg);
+  JsonDocument d;
+  d["message"] = msg;
+  d["reconnect"] = reconnect;
+  d["net_try_base"] = ns.try_seq;
+  replyJson(200, d);
+}
+
+void handleNetRetry() {
+  if (!writeOk()) return;
+  const net::Status ns = net::status();
+  if (!net::retryNow()) { replyMsg(409, "Kayıtlı Wi-Fi ağı yok; önce bir ağ seçin."); return; }
+  JsonDocument d;
+  d["message"] = "Kayıtlı ağ yeniden deneniyor.";
+  d["net_try_base"] = ns.try_seq;
+  replyJson(200, d);
+}
+
+void handleNetFinish() {
+  if (!writeOk()) return;
+  if (!net::finishSetup()) { replyMsg(409, "Kurulum ağı devir durumunda değil; kapatılacak bir şey yok."); return; }
+  replyMsg(200, "Kurulum ağı kapatılıyor.");
 }
 
 void handleResetWifi() {
   if (!writeOk()) return;
   const char* err = nullptr;
   if (!net::resetWifi(&err)) { replyMsg(507, err); return; }
-  char msg[128];
-  snprintf(msg, sizeof msg, "Wi-Fi bilgileri silindi; kurulum ağı %s açılıyor (%s).", net::status().ap_name, net::kApIp);
+  char msg[160];
+  snprintf(msg, sizeof msg, "Wi-Fi bilgileri silindi. Kurulum ağı %s açılıyor; adres http://%s", net::status().ap_name, net::kApIp);
   replyMsg(200, msg);
 }
 
@@ -564,6 +616,8 @@ void begin() {
   g_srv.on("/api/settings", HTTP_GET, settingsGet);
   g_srv.on("/api/settings", HTTP_POST, settingsPost);
   g_srv.on("/api/reset-wifi", HTTP_POST, handleResetWifi);
+  g_srv.on("/api/net/retry", HTTP_POST, handleNetRetry);
+  g_srv.on("/api/net/finish", HTTP_POST, handleNetFinish);
   g_srv.on("/api/reboot", HTTP_POST, handleReboot);
   g_srv.on("/api/events", HTTP_GET, handleEvents);
   g_srv.on("/api/alarms", HTTP_GET, handleAlarms);

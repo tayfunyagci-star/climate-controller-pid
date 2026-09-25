@@ -47,12 +47,16 @@ pio device monitor
 | H14 | Wi-Fi erişim noktasını kapat | Kontrol etkilenmez; `WIFI_OFFLINE` alarmı; saat geçerli kalır | ☐ |
 | H15 | 24 sa çalıştır, `status` | Heap düşüşü yok, `kilit zaman asimi=0`, görev azami süreleri < 5 ms, DHT hata oranı < % 1 | ☐ |
 | H16 | NVS boş kart (`pio run -t erase` sonrası) ilk açılış | `SCADA_AP_<id>` yayında, LED yavaş; telefonla bağlanınca kurulum sayfası kendiliğinden açılır (açmazsa 192.168.4.1) | ☐ |
-| H17 | Kurulum sayfası → **Wi-Fi seç ve bağlan** → ağ + parola → **Ağı kaydet** | Cihaz yeniden başlamadan bağlanır, AP kapanır; `kulube-iklim.local` ve IP ile açılır; olaylarda `NET_WIFI_CHANGED`, `NET_CONNECTED`, `NET_AP_OFF` | ☐ |
-| H18 | Yanlış parola kaydet | 20 s sonra AP yeniden yayında, panel “bağlanılamadı” der; 5 dk sonra arka plan denemesi (konsol `[NET]` satırı) | ☐ |
+| H17 | Kurulum sayfası → **Wi-Fi ağı seç** → ağ + parola → **Kaydet ve bağlan** | Yeniden başlatma yok; pencere üç aşamayı cihaz verisiyle ilerletir; “Cihaz Wi-Fi ağına bağlandı” + IP/mDNS + kapanışa kalan süre; **Kurulumu bitir** ile AP kapanır (dokunulmazsa 120 s); olaylarda `NET_WIFI_CHANGED`, `NET_CONNECTED`, `NET_AP_OFF` | ☐ |
+| H18 | Yanlış parola kaydet | ≤ 20 s sonra “bağlanamadı” + `AUTH` sınıfı metni (konsolda neden kodu, beklenen 15/202/204); AP açık kalır; **Parolayı yeniden gir** çalışır; 5 dk sonra arka plan denemesi | ☐ |
 | H19 | Router'ı kapat (cihaz bağlıyken), 2 dk sonra aç | 15 s sonra deneme, başarısızsa AP açılır; router dönünce en geç 5 dk içinde bağlanır, AP kapanır; kontrol hiç etkilenmez | ☐ |
 | H20 | Ayarlar › Ağ: statik IP'yi başka alt ağa ayarla, kaydet | Statik deneme 20 s → DHCP ile bağlanır; genel uyarı “Statik IP ile bağlanılamadı; DHCP ile alınan adres …” | ☐ |
-| H21 | Bakım › **Wi-Fi bilgilerini sil ve AP başlat**; ayrıca BOOT butonu 10 s | Her ikisinde yeniden başlatmadan AP açılır; ısıtma/fan çıkışları değişmez | ☐ |
+| H21 | Bakım › **Wi-Fi bilgilerini sil**; ayrıca BOOT butonu 10 s | Onay metni kapsamı ve kurulum ağı adresini verir; her ikisinde yeniden başlatmadan AP açılır; sayfada kalıcı yönerge, “veri bayat” alarm yağmuru yok; ısıtma/fan çıkışları değişmez | ☐ |
 | H22 | `otapass <parola>`, `ota`, `platformio.ini` espota satırlarını aç, `pio run -t upload` | Hazırlıksız yükleme iptal + hazırlık; ısıtma durup post-cool bitince yükleme kabul edilir; yeni imaj açılır | ☐ |
+| H23 | 5 GHz-yalnız / olmayan ağ adını “Ağım görünmüyor” ile gir | `NOT_FOUND` metni; AP açık kalır | ☐ |
+| H24 | Normal ağdan (Bakım) başka ağa geç | Sayfa bağlantısı kesilince tek “Ağ değişikliği sürüyor” notu; pencerede yeni adres + kurulum ağı dönüş yönergesi; yeni ağda cihaz açılır | ☐ |
+| H25 | Kayıtlı ağ kapalıyken açılış → AP (kurtarma) kartı; router'ı aç → **Kayıtlı ağı şimdi dene** | Kart “kayıtlı ağa bağlanamadı” + sonraki deneme süresi; deneme başarılı, telefon AP'deyken devir uygulanır | ☐ |
+| H26 | Kurulum ağında kaydet; STA farklı kanaldaysa telefonun AP bağlantısını izle | Kısa kopma olursa sayfa sakin not gösterir, telefon AP'ye dönünce sonucu alır; dönmezse “Kurulum tamamlandı” yönergeleri geçerli | ☐ |
 
 Her adımın sonucu ve seri log çıktısı `docs/CHANGELOG.md` F2 bölümüne işlenir. Geçmeyen madde varsa HIL-2'ye geçilmez.
 

@@ -39,6 +39,26 @@ bool g_ap = false, g_services = false, g_ota_started = false;
 char g_gw[16] = "";
 char g_ntp_buf[64] = "pool.ntp.org";
 std::atomic<bool> g_synced{false};
+// Wi-Fi olayları (sistem olay görevi) → NetTask: son kopma nedeni, bu denemede L2 bağlantı / IP alındı mı
+std::atomic<uint16_t> g_reason{0};
+std::atomic<bool> g_l2{false}, g_ip{false};
+bool g_release = false;                        // Kurulumu bitir (g_mtx)
+
+void onWifiEvent(arduino_event_id_t id, arduino_event_info_t info) {
+  switch (id) {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED: g_l2.store(true); break;
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP: g_ip.store(true); break;
+    case ARDUINO_EVENT_WIFI_STA_LOST_IP: g_ip.store(false); break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+      const uint16_t r = info.wifi_sta_disconnected.reason;
+      if (r != 8) g_reason.store(r);           // 8 ASSOC_LEAVE: kendi disconnect çağrımız
+      g_l2.store(false);
+      g_ip.store(false);
+      break;
+    }
+    default: break;
+  }
+}
 
 struct Lock {
   Lock() { xSemaphoreTake(g_mtx, portMAX_DELAY); }
@@ -155,6 +175,9 @@ void apply(const cc::NetActions& a, const NetSettings& n, const char* ssid, cons
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(false);               // yeniden deneme FSM'de (tek yol)
     WiFi.disconnect(false, false);
+    g_reason.store(0);                          // yeni deneme: önceki neden/IP kanıtı geçersiz
+    g_l2.store(false);
+    g_ip.store(false);
     if (a.use_static) {
       const IPAddress gw = toIp(n.gw);
       WiFi.config(toIp(n.ip), gw, toIp(n.sn), n.d1[0] ? toIp(n.d1) : gw, n.d2[0] ? toIp(n.d2) : IPAddress(0, 0, 0, 0));
@@ -186,12 +209,18 @@ void apply(const cc::NetActions& a, const NetSettings& n, const char* ssid, cons
   }
   switch (a.ev) {
     case cc::NetEvent::CONNECTED: note(cc::Severity::INFO, cc::EvCode::NET_CONNECTED); break;
+    case cc::NetEvent::AP_HANDOVER:
+      note(cc::Severity::INFO, cc::EvCode::NET_CONNECTED);
+      Serial.println("[NET] Kurulum AP'si devir icin acik kaliyor (en cok 120 s veya 'Kurulumu bitir')");
+      break;
     case cc::NetEvent::CONNECTED_DHCP_FALLBACK: note(cc::Severity::WARNING, cc::EvCode::NET_DHCP_FALLBACK); break;
     case cc::NetEvent::DISCONNECTED:
       note(cc::Severity::WARNING, cc::EvCode::NET_DISCONNECTED);
       Serial.println("[NET] Wi-Fi baglantisi koptu");
       break;
-    case cc::NetEvent::TIMEOUT_TO_AP: Serial.println("[NET] Baglanilamadi; kurulum AP'si acik, 5 dk'da bir yeniden denenecek"); break;
+    case cc::NetEvent::TIMEOUT_TO_AP:
+      Serial.printf("[NET] Baglanilamadi (neden %u); kurulum AP'si acik, 5 dk'da bir yeniden denenecek\n", (unsigned)g_reason.load());
+      break;
     case cc::NetEvent::STATIC_TO_DHCP: Serial.println("[NET] Statik IP basarisiz/gecersiz; DHCP deneniyor"); break;
     default: break;
   }
@@ -205,6 +234,7 @@ void netTask(void*) {
     Lock l;
     strncpy(g_status.ap_name, ap_name, sizeof g_status.ap_name - 1);
   }
+  WiFi.onEvent(onWifiEvent);
   bool web_started = false;
   uint32_t last_fsm = 0;
   for (;;) {
@@ -213,7 +243,7 @@ void netTask(void*) {
       last_fsm = now;
       NetSettings n;
       char ssid[33], pass[65], ota[33];
-      bool reconnect, ota_reload;
+      bool reconnect, ota_reload, release;
       {
         Lock l;
         n = g_cfg;
@@ -224,16 +254,24 @@ void netTask(void*) {
         g_reconnect = false;
         ota_reload = g_ota_reload;
         g_ota_reload = false;
+        release = g_release;
+        g_release = false;
       }
       if (ota_reload && g_ota_started) { ArduinoOTA.end(); g_ota_started = false; }
       if (ota_reload && g_services) startOta(n.mdns, ota);
       strncpy(g_ntp_buf, n.ntp, sizeof g_ntp_buf - 1);
       if (reconnect) g_fsm.requestReconnect();
+      if (release) g_fsm.releaseAp();
+      const uint8_t ap_clients = g_ap ? WiFi.softAPgetStationNum() : 0;
       cc::NetInput in;
       in.configured = ssid[0] != 0;
       in.static_enabled = n.st;
       in.static_valid = n.st && staticValid(n);
-      in.sta_connected = WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+      // g_ip: bu denemede GOT_IP olayı alındı (ağ değişiminde eski bağlantının WL_CONNECTED'ı sayılmaz)
+      in.sta_connected = g_ip.load() && WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0);
+      in.ap_clients = ap_clients > 0;
+      const bool l2_no_ip = g_l2.load() && !g_ip.load();
+      in.fail = cc::netFailFrom(g_reason.load(), l2_no_ip);
       const cc::NetActions a = g_fsm.step(in, now);
       apply(a, n, ssid, pass, ota, ap_name);
       memset(pass, 0, sizeof pass);
@@ -249,9 +287,19 @@ void netTask(void*) {
         s.ota_ready = g_ota_started;
         s.phase = (uint8_t)g_fsm.phase();
         s.retry_s = g_fsm.retryInMs(now) / 1000;
+        s.handover = g_fsm.handover();
+        s.ap_close_s = (g_fsm.apCloseInMs(now) + 999) / 1000;
+        s.try_seq = g_fsm.trySeq();
+        s.result = (uint8_t)g_fsm.result();
+        s.fail = (uint8_t)g_fsm.lastFail();
+        if (a.ev == cc::NetEvent::TIMEOUT_TO_AP) s.fail_code = g_reason.load();
+        else if (a.ev == cc::NetEvent::CONFIG_CHANGED) s.fail_code = 0;
+        s.ap_clients = ap_clients;
         if (a.ev == cc::NetEvent::DISCONNECTED) ++s.reconnects;
         s.rssi = s.sta_ok ? (int8_t)WiFi.RSSI() : 0;
         strncpy(s.ip, (s.sta_ok ? WiFi.localIP() : (g_ap ? toIp(kApIp) : IPAddress(0, 0, 0, 0))).toString().c_str(), sizeof s.ip - 1);
+        if (s.sta_ok) strncpy(s.sta_ip, WiFi.localIP().toString().c_str(), sizeof s.sta_ip - 1);
+        else s.sta_ip[0] = 0;
         strncpy(s.ssid, ssid, sizeof s.ssid - 1);
         if (s.static_failed && s.sta_ok) snprintf(s.note, sizeof s.note, "Statik IP ile bağlanılamadı; DHCP ile alınan adres: %s", s.ip);
         else s.note[0] = 0;
@@ -315,7 +363,10 @@ bool apply(const NetSettings& c, const char* ssid, const char* pass, const char*
     if (c.d2[0] && !cc::parseIpv4(c.d2, d)) return bad("dns2", "İkincil DNS geçersiz.");
   }
   if (ssid && (!ssid[0] || strlen(ssid) > 32)) return bad("ssid", "Wi-Fi adı 1–32 karakter olmalı.");
-  if (pass && pass[0] && (strlen(pass) < 8 || strlen(pass) > 64)) return bad("pass", "Wi-Fi parolası 8–64 karakter olmalı (boş = açık ağ).");
+  if (pass && pass[0] && (strlen(pass) < 8 || strlen(pass) > 64)) return bad("pass", "Wi-Fi parolası 8–63 bayt olmalı (64 yalnız onaltılık anahtar; boş = açık ağ).");
+  if (pass && strlen(pass) == 64)
+    for (const char* q = pass; *q; ++q)
+      if (!isxdigit((unsigned char)*q)) return bad("pass", "64 karakterlik anahtar yalnız onaltılık (0-9, a-f) olabilir; parola en çok 63 bayt.");
   NetSettings old;
   char old_ssid[33], old_pass[65];
   { Lock l; old = g_cfg; memcpy(old_ssid, g_ssid, sizeof old_ssid); memcpy(old_pass, g_pass, sizeof old_pass); }
@@ -354,6 +405,20 @@ bool resetWifi(const char** err) {
     g_reconnect = true;
   }
   note(cc::Severity::WARNING, cc::EvCode::NET_WIFI_CLEARED, cc::CmdSource::LOCAL_WEB);
+  return true;
+}
+
+bool retryNow() {
+  Lock l;
+  if (!g_ssid[0]) return false;
+  g_reconnect = true;
+  return true;
+}
+
+bool finishSetup() {
+  Lock l;
+  if (!g_status.handover) return false;
+  g_release = true;
   return true;
 }
 

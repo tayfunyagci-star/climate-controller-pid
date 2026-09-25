@@ -39,21 +39,109 @@ void test_first_boot_ap() {
   TEST_ASSERT_EQUAL(0, s.attempts);
 }
 
-// AP'de Wi-Fi kaydedilir → AP+STA denemesi; bağlanınca AP kapanır, servisler başlar
-void test_setup_then_connect_closes_ap() {
+// AP'de Wi-Fi kaydedilir → AP+STA denemesi; bağlanınca servisler başlar, kurulum ağı devir süresince
+// (120 s) açık kalır ki sonuç ve yeni adres kurulum sayfasında görülsün; süre dolunca kapanır
+void test_setup_then_connect_handover_then_ap_closes() {
   Sim s;
   s.step();
+  const uint32_t seq0 = s.f.trySeq();
   s.in.configured = true;
   s.f.requestReconnect();
   s.step();
   TEST_ASSERT_EQUAL(NetPhase::CONNECTING, s.f.phase());
+  TEST_ASSERT_EQUAL(seq0 + 1, s.f.trySeq());
+  TEST_ASSERT_EQUAL(NetResult::TRYING, s.f.result());
   TEST_ASSERT_TRUE(s.ap);            // deneme sırasında kurulum ağı açık kalır
   s.run(3000);
   s.in.sta_connected = true;
   s.step();
   TEST_ASSERT_TRUE(s.f.online());
-  TEST_ASSERT_FALSE(s.ap);
+  TEST_ASSERT_EQUAL(NetResult::CONNECTED, s.f.result());
+  TEST_ASSERT_EQUAL(NetEvent::AP_HANDOVER, s.last);
+  TEST_ASSERT_TRUE(s.ap);
+  TEST_ASSERT_TRUE(s.f.handover());
   TEST_ASSERT_TRUE(s.services);
+  TEST_ASSERT_UINT32_WITHIN(100, 120000, s.f.apCloseInMs(s.t));
+  s.run(119000);
+  TEST_ASSERT_TRUE(s.ap);
+  s.run(1100);
+  TEST_ASSERT_FALSE(s.ap);
+  TEST_ASSERT_FALSE(s.f.handover());
+  TEST_ASSERT_TRUE(s.f.online());
+}
+
+// "Kurulumu bitir": devirdeki kurulum ağı hemen kapanır; devir dışındaki istek birikmez
+void test_release_closes_handover_ap() {
+  Sim s;
+  s.step();
+  s.f.releaseAp();                   // devir yokken: etkisiz, sonraya taşınmaz
+  s.step();
+  s.in.configured = true;
+  s.f.requestReconnect();
+  s.step();
+  s.run(2000);
+  s.in.sta_connected = true;
+  s.step();
+  TEST_ASSERT_TRUE(s.ap);
+  s.f.releaseAp();
+  s.step();
+  TEST_ASSERT_FALSE(s.ap);
+  TEST_ASSERT_EQUAL(NetEvent::AP_STOPPED, s.last);
+}
+
+// Kayıtlı ağ + AP (kurtarma): arka plan denemesi başarılı; kurulum ağında istemci yoksa AP hemen kapanır,
+// istemci varsa devir uygulanır
+void test_background_success_handover_only_with_clients() {
+  Sim s;
+  s.in.configured = true;
+  s.step();
+  s.run(20100);                      // 20 s → AP
+  TEST_ASSERT_TRUE(s.ap);
+  s.run(300100);                     // 5 dk → arka plan denemesi
+  s.in.sta_connected = true;
+  s.step();
+  TEST_ASSERT_FALSE(s.ap);           // kimse yok: eski davranış
+  Sim c;
+  c.in.configured = true;
+  c.step();
+  c.run(20100);
+  c.run(300100);
+  c.in.ap_clients = true;
+  c.in.sta_connected = true;
+  c.step();
+  TEST_ASSERT_TRUE(c.ap);
+  TEST_ASSERT_TRUE(c.f.handover());
+}
+
+// Başarısız deneme: sonuç FAILED ve cihazın bildirdiği neden sınıfı korunur; yeni kayıt sıfırlar
+void test_failed_attempt_reports_reason_class() {
+  Sim s;
+  s.step();
+  s.in.configured = true;
+  s.f.requestReconnect();
+  s.step();
+  s.in.fail = netFailFrom(15, false);   // 4WAY_HANDSHAKE_TIMEOUT
+  s.run(20100);
+  TEST_ASSERT_EQUAL(NetResult::FAILED, s.f.result());
+  TEST_ASSERT_EQUAL(NetFail::AUTH, s.f.lastFail());
+  TEST_ASSERT_TRUE(s.ap);
+  s.in.fail = NetFail::NONE;
+  s.f.requestReconnect();
+  s.step();
+  TEST_ASSERT_EQUAL(NetResult::TRYING, s.f.result());
+  TEST_ASSERT_EQUAL(NetFail::NONE, s.f.lastFail());
+}
+
+void test_reason_classes() {
+  TEST_ASSERT_EQUAL(NetFail::NONE, classifyWifiReason(0));
+  TEST_ASSERT_EQUAL(NetFail::NONE, classifyWifiReason(8));
+  TEST_ASSERT_EQUAL(NetFail::NOT_FOUND, classifyWifiReason(201));
+  TEST_ASSERT_EQUAL(NetFail::AUTH, classifyWifiReason(202));
+  TEST_ASSERT_EQUAL(NetFail::AUTH, classifyWifiReason(204));
+  TEST_ASSERT_EQUAL(NetFail::ASSOC, classifyWifiReason(203));
+  TEST_ASSERT_EQUAL(NetFail::SIGNAL_LOST, classifyWifiReason(200));
+  TEST_ASSERT_EQUAL(NetFail::OTHER, classifyWifiReason(205));
+  TEST_ASSERT_EQUAL(NetFail::NO_IP, netFailFrom(201, true));
 }
 
 // Kayıtlı ağ, boot'ta ulaşılamaz → 20 s sonra AP; 5 dk'da bir arka plan denemesi
@@ -185,7 +273,11 @@ void test_ipv4_parse_and_static_rules() {
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_first_boot_ap);
-  RUN_TEST(test_setup_then_connect_closes_ap);
+  RUN_TEST(test_setup_then_connect_handover_then_ap_closes);
+  RUN_TEST(test_release_closes_handover_ap);
+  RUN_TEST(test_background_success_handover_only_with_clients);
+  RUN_TEST(test_failed_attempt_reports_reason_class);
+  RUN_TEST(test_reason_classes);
   RUN_TEST(test_boot_unreachable_opens_ap_and_retries_every_5min);
   RUN_TEST(test_static_timeout_falls_back_to_dhcp);
   RUN_TEST(test_invalid_static_goes_dhcp_directly);

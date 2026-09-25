@@ -36,6 +36,7 @@
 | D-18 | `controller_enable=OFF` yalnız yerel | ENTITY_MODEL §1 |
 | D-19 | `sched_*` istekleri `sched_timeout_h` ile kendiliğinden düşer | CONTROL_ARCHITECTURE §3.3 |
 | D-20 | Boot sonrası `heater_was_on` ise post-cool | OUTPUT_AND_INTERLOCKS §6 |
+| D-24 | Kurulum/kurtarma deneyimi `scada-wifi-onboarding` ilkelerine göre: kayıt ≠ bağlantı, devir (AP bağlandıktan sonra ≤ 120 s açık), deneme sayacı + sonuç + neden sınıfı API'de, sıfırlama kapsamları ayrı | [NETWORK.md §3](NETWORK.md), CHANGELOG F2.3 |
 | D-23 | Ağ bağlantı yaşam döngüsü SCADA ailesiyle aynı: `SCADA_AP_<id>` kurulum AP'si, captive portal, 20 s deneme, statik → DHCP, AP + 5 dk deneme, Wi-Fi değişimi yeniden başlatmasız | [NETWORK.md](NETWORK.md) |
 | D-22 | F2 donanımı: ESP32 DevKit V1 (F2.1), DHT22, T2 yok, 2 × 1000 W SSR_ZC, aktif-LOW fan röleleri, ARM yok (sapma), NTP, 4 MB bölüm tablosu | [CHANGELOG F2](CHANGELOG.md), [HIL.md](HIL.md) |
 | D-21 | Yerel program modülü: WEEKLY/DATE_RANGE/ONCE, durumsuz değerlendirme, öncelik BOOST › açık profil › program › Suite | [ADR-009](ADR/ADR-009-local-programs.md), [PROGRAMS.md](PROGRAMS.md) |
@@ -116,3 +117,4 @@ T2 zorunlu hâle getirme, akım/RPM geri bildirimi, dış sıcaklık ve PID iler
 | 25.09.2026 | F2 donanım kararları onaylandı (D-22), ARM hattı olmaması sapma olarak kabul edildi; F2 uygulandı | Kullanıcı onayı; CHANGELOG F2 |
 | 25.09.2026 | Hedef kart ESP32 DevKit V1 olarak değişti; pin haritası ve 4 MB bölüm tablosu yenilendi | Kullanıcı kararı; CHANGELOG F2.1 |
 | 25.09.2026 | AP kurulum ve bağlantı senaryoları aile standardına alındı (D-23); web sunucusunun kurulum/veri/komut kısmı F4'ten öne çekildi | Kullanıcı isteği; CHANGELOG F2.2 |
+| 25.09.2026 | Firmware ilk kurulum ve Wi-Fi kurtarma akışı `scada-wifi-onboarding`'e göre yeniden tasarlandı ve uygulandı (D-24) | Kullanıcı isteği; CHANGELOG F2.3 |

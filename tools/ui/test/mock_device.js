@@ -22,6 +22,7 @@ const cfg = {
   user: 'admin', guestRead: false, session_hours: 8,
   temperature_setpoint: 22, setpoint_night: 18, setpoint_away: 12, setpoint_boost: 23, operating_mode: 'AUTO', profile: 'DAY', manual_heat_demand: 40
 };
+const NET = {try: 3, result: 'CONNECTED', fail: 'NONE', phase: 'ONLINE', hold: 0, retryAt: 0};
 const flags = {ap: false, scanN: 0, speed: 10, unplug: false, overtemp: false, broker: true, control: 'apply', offline: false};
 const S = {
   t: 0, T: 16.8, Tout: -2, RH: 58, Tf: 16.8, cfgRev: 44, seq: 0, boot: 37,
@@ -336,9 +337,14 @@ function data() {
   const hi = al.reduce((m, a) => rank[a.sev] > rank[m] ? a.sev : m, 'NORMAL');
   return {
     v: 1, seq: S.seq, ts: Math.floor(S.epoch + S.t / 1000), uptime: Math.floor(86400 + S.t / 1000),
-    ap_mode: flags.ap, ap_name: 'SCADA_AP_3C71BF4A', ap_ip: '192.168.4.1', wifi_ssid: flags.ap ? (flags.ssid || '') : 'Kulube-Ag', net_note: '',
-    device_name: c.adN, ip: flags.ap ? '192.168.4.1' : '192.168.1.57', mdns: c.mdns, client_ip: '192.168.1.20', fw_version: '1.0.0', fw_build: 'r12',
-    wifi_ok: !flags.ap, wifi_rssi: flags.ap ? null : -61, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', time_valid: 'ON', password_set: true,
+    ap_mode: flags.ap, ap_name: 'SCADA_AP_3C71BF4A', ap_ip: '192.168.4.1', wifi_ssid: flags.ssid !== undefined ? flags.ssid : 'Kulube-Ag', net_note: '',
+    net_phase: flags.ap && NET.phase === 'ONLINE' && !NET.hold ? 'AP_ONLY' : NET.phase, net_setup: !flags.ap ? 'NONE' : NET.hold > Date.now() ? 'HANDOVER' : (flags.ssid ? 'RECOVERY' : 'FIRST'),
+    net_try: NET.try, net_result: NET.result, net_fail: NET.fail, net_fail_code: NET.fail === 'AUTH' ? 15 : 0,
+    net_retry_s: flags.ap && flags.ssid && NET.phase === 'WAITING' ? Math.max(0, Math.round((NET.retryAt - Date.now()) / 1000)) : 0,
+    ap_close_s: NET.hold > Date.now() ? Math.ceil((NET.hold - Date.now()) / 1000) : 0, ap_clients: flags.ap ? 1 : 0,
+    sta_ip: NET.phase === 'ONLINE' ? '192.168.1.57' : '', static_ip: cfg.staticEnabled,
+    device_name: c.adN, ip: NET.phase === 'ONLINE' ? '192.168.1.57' : '192.168.4.1', mdns: c.mdns, client_ip: '192.168.1.20', fw_version: '1.0.0', fw_build: 'r12',
+    wifi_ok: NET.phase === 'ONLINE', wifi_rssi: NET.phase === 'ONLINE' ? -61 : null, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', time_valid: 'ON', password_set: true,
     temperature: ok ? +S.Tf.toFixed(1) : null, humidity: +S.RH.toFixed(1), temperature_quality: q, humidity_quality: 'GOOD', t2: null, t2_quality: 'DISABLED',
     sensor_ok: onoff(q === 'GOOD'), sensor_age_s: Math.round((S.t - S.lastGood) / 1000),
     temperature_setpoint: c.temperature_setpoint, setpoint_effective: +S.eff.toFixed(2), setpoint_source: S.src,
@@ -437,6 +443,18 @@ function validate(c) {
   if (!(c.pid_ki <= c.pid_kp)) return e('pid_ki', 'Ki, Kp’den büyük olamaz (Ti ≥ 1 dk, V13).');
   return null;
 }
+// Bağlantı denemesi benzetimi: 4 s sonra başarı (AP'deyse 120 s devir) veya hata sınıfı
+function netAttempt(fail) {
+  NET.try++; NET.result = 'TRYING'; NET.fail = 'NONE'; NET.phase = 'CONNECTING';
+  const wasAp = flags.ap;
+  setTimeout(() => {
+    if (fail) { NET.result = 'FAILED'; NET.fail = fail; NET.phase = 'WAITING'; NET.retryAt = Date.now() + 300000; flags.ap = true; return; }
+    NET.result = 'CONNECTED'; NET.phase = 'ONLINE';
+    if (wasAp) { NET.hold = Date.now() + 120000; setTimeout(() => { if (NET.hold && NET.hold <= Date.now() + 500) { NET.hold = 0; flags.ap = false; } }, 120000); }
+    else flags.ap = false;
+    ev('INFO', 'NET', 'Wi-Fi bağlandı (' + flags.ssid + ')');
+  }, 4000);
+}
 const json = (o, status) => new Response(JSON.stringify(o), {status: status || 200, headers: {'Content-Type': 'application/json'}});
 const realFetch = window.fetch.bind(window);
 window.fetch = async function (url, opt) {
@@ -481,12 +499,15 @@ window.fetch = async function (url, opt) {
   if (p === '/api/settings' && body && 'ssid' in body && Object.keys(body).every(k => k === 'ssid' || k === 'pass')) {
     if (!body.ssid || body.ssid.length > 32) return json({message: 'SSID 1–32 karakter olmalı', field: 'ssid'}, 400);
     if (body.pass && (body.pass.length < 8 || body.pass.length > 64)) return json({message: 'Wi-Fi parolası 8–64 karakter veya boş (açık ağ) olmalı', field: 'pass'}, 400);
+    const base = NET.try;
     flags.ssid = body.ssid; flags.passSet = !!body.pass;
     ev('WARNING', 'NET', 'Wi-Fi kimliği değişti: ' + body.ssid);
-    setTimeout(() => { flags.ap = false; ev('INFO', 'NET', 'Wi-Fi bağlandı (' + body.ssid + ')'); }, 4000);
-    return json({message: 'Wi-Fi kaydedildi; cihaz “' + body.ssid + '” ağına geçiyor'});
+    netAttempt(body.ssid === 'TurkTelekom_ZX91' ? 'NOT_FOUND' : body.pass === 'yanlisparola' ? 'AUTH' : null);
+    return json({message: 'Ayarlar kaydedildi. Cihaz “' + body.ssid + '” ağına bağlanmayı deneyecek.', reconnect: true, net_try_base: base});
   }
-  if (p === '/api/reset-wifi') { flags.ap = true; flags.ssid = ''; ev('WARNING', 'NET', 'Wi-Fi kimliği silindi; kurulum AP’si açıldı'); return json({message: 'Wi-Fi silindi; kurulum AP’si açıldı (SCADA_AP_3C71BF4A)'}); }
+  if (p === '/api/net/retry') { if (!flags.ssid) return json({message: 'Kayıtlı Wi-Fi ağı yok'}, 409); const base = NET.try; netAttempt(NET.fail !== 'NONE' ? NET.fail : null); return json({message: 'Kayıtlı ağ yeniden deneniyor.', net_try_base: base}); }
+  if (p === '/api/net/finish') { if (!(NET.hold > Date.now())) return json({message: 'Kurulum ağı devir durumunda değil'}, 409); NET.hold = 0; setTimeout(() => { flags.ap = false; }, 300); return json({message: 'Kurulum ağı kapatılıyor.'}); }
+  if (p === '/api/reset-wifi') { NET.phase = 'AP_ONLY'; NET.result = 'NONE'; NET.try++; flags.ap = true; flags.ssid = ''; ev('WARNING', 'NET', 'Wi-Fi kimliği silindi; kurulum AP’si açıldı'); return json({message: 'Wi-Fi silindi; kurulum AP’si açıldı (SCADA_AP_3C71BF4A)'}); }
   if (p === '/api/settings' && !body) {
     const out = Object.assign({}, cfg, {otaPasswordSet: true, mqPwSet: true, servicePinSet: true, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
     return json(out);
@@ -571,7 +592,7 @@ function panel() {
   g('mk-broker').onchange = e => { flags.broker = e.target.checked; };
   g('mk-ctl').onchange = e => { flags.control = e.target.value; };
   g('mk-off').onchange = e => { flags.offline = e.target.checked; };
-  g('mk-ap').onchange = e => { flags.ap = e.target.checked; };
+  g('mk-ap').onchange = e => { flags.ap = e.target.checked; if (flags.ap) { flags.ssid = ''; NET.phase = 'AP_ONLY'; NET.result = 'NONE'; } else { flags.ssid = 'Kulube-Ag'; NET.phase = 'ONLINE'; NET.result = 'CONNECTED'; NET.hold = 0; } };
   setInterval(() => { if (g('mk-ap').checked !== flags.ap) g('mk-ap').checked = flags.ap; }, 1000);
   g('mk-out').onchange = e => { S.Tout = Number(e.target.value); };
 }

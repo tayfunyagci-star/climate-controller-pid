@@ -364,6 +364,9 @@ builders.settings = sec => {
     const curSsid = h('dd', {id: 'cur-ssid', class: 'mono'}, d.ssid || 'Tanımlı değil (AP kurulum modu)');
     const wBtn = h('button', {type: 'button', 'data-icon': 'wifi', 'data-text': ''}, 'Ağ tara ve değiştir');
     wBtn.addEventListener('click', openWifiDialog);
+    const wResetOut = h('div', {class: 'cmd-msg', id: 'wreset-out'});
+    const wReset = h('button', {type: 'button', class: 'danger', 'data-icon': 'wifioff', 'data-text': ''}, 'Wi-Fi bilgilerini sil');
+    wReset.addEventListener('click', () => resetWifiFlow(wReset, wResetOut));
     const otaFile = h('input', {type: 'file', id: 'ota-file', accept: '.bin'});
     const otaPw = h('input', {type: 'password', id: 'ota-pw', maxlength: '64', autocomplete: 'off'});
     const otaBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
@@ -381,7 +384,7 @@ builders.settings = sec => {
       h('h4', {class: 'group-heading', text: 'Kablosuz bağlantıyı değiştir'}),
       h('dl', {class: 'kv'}, h('dt', {text: 'Kayıtlı ağ'}), curSsid, h('dt', {text: 'Parola'}), h('dd', {text: d.passSet ? 'Kayıtlı' : 'Yok (açık ağ)'})),
       h('div', {class: 'btn-row'}, wBtn),
-      h('p', {class: 'field-hint', text: 'Yeni ağ seçildiğinde cihaz yeniden başlamadan geçiş yapar. Bağlanamazsa 20 s sonra kurulum AP’si açılır ve kayıtlı ağ 5 dakikada bir yeniden denenir.'}),
+      h('p', {class: 'field-hint', text: 'Yeni ağ seçildiğinde cihaz yeniden başlamadan geçiş yapar ve bu sayfayla bağlantı kesilir. Bağlanamazsa 20–40 sn sonra kurulum ağı açılır ve kayıtlı ağ 5 dakikada bir yeniden denenir.'}),
       h('h4', {class: 'group-heading', text: 'Firmware'}),
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile),
         h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw),
@@ -390,8 +393,10 @@ builders.settings = sec => {
       h('div', {class: 'btn-row'}, cnt, cntBtn),
       h('div', {class: 'btn-row'},
         act('Yeniden başlat', 'reboot', false, 'Yeniden başlatma', 'Rezistanslar kapatılıp soğutma tamamlandıktan sonra cihaz yeniden başlatılsın mı?', '/api/reboot'),
-        act('Wi-Fi bilgilerini sil ve AP başlat', 'wifioff', true, 'Wi-Fi sıfırlama', 'Yalnız Wi-Fi adı ve parolası silinecek, statik IP kapatılacak. Cihaz yeniden başlamadan AP kurulum moduna geçer; kontrol çalışmaya devam eder. Devam edilsin mi?', '/api/reset-wifi'),
+        wReset,
         act('Fabrika ayarlarına dön', 'factory', true, 'Fabrika ayarları', 'Ağ, parola, ayarlar, kilitli olmayan alarmlar ve sayaçlar silinecek; güvenlik limitleri varsayılana döner. Fabrika ayarlarına dönülsün mü?', '/api/factory-reset')),
+      wResetOut,
+      h('p', {class: 'field-hint', text: 'Üç işlem ayrıdır: yeniden başlatma yalnız cihazı yeniden açar; Wi-Fi silme yalnız kablosuz bilgileri siler; fabrika ayarları bütün ayarları siler. Bağlantı sorununda önce Wi-Fi ağını değiştirin.'}),
       h('p', {class: 'field-hint', text: 'Yeniden başlatmada rezistanslar donanım pull-down’ları ile kapalı kalır; mod ve ayarlar korunur.'})));
   }
 

@@ -15,6 +15,7 @@ void NetFsm::beginAttempt(const NetInput& in, uint32_t now, NetActions& a) {
     a.ev = NetEvent::STATIC_TO_DHCP;
   }
   a.begin_sta = true;
+  result_ = NetResult::TRYING;
   a.use_static = in.static_enabled && !static_failed_;
   if (a.ev == NetEvent::NONE) a.ev = NetEvent::CONNECTING;
   phase_ = NetPhase::CONNECTING;
@@ -27,6 +28,12 @@ NetActions NetFsm::step(const NetInput& in, uint32_t now) {
     changed_ = false;
     if (phase_ == NetPhase::ONLINE) a.stop_services = true;
     static_failed_ = false;
+    hold_ = false;
+    release_ = false;
+    user_ = ap_;                 // kurulum ağındaki sayfadan gelen kayıt / yeniden dene
+    ++try_seq_;
+    fail_ = NetFail::NONE;
+    if (!in.configured) result_ = NetResult::NONE;
     beginAttempt(in, now, a);
     if (a.ev == NetEvent::CONNECTING) a.ev = NetEvent::CONFIG_CHANGED;
     return a;
@@ -36,17 +43,29 @@ NetActions NetFsm::step(const NetInput& in, uint32_t now) {
       phase_ = NetPhase::ONLINE;
       a.start_services = true;
       a.ev = (in.static_enabled && static_failed_) ? NetEvent::CONNECTED_DHCP_FALLBACK : NetEvent::CONNECTED;
+      result_ = NetResult::CONNECTED;
+      fail_ = NetFail::NONE;
+      if (ap_ && (user_ || in.ap_clients) && !release_ && p_.handover_ms) {
+        hold_ = true;              // devir: sonuç kurulum sayfasında görülebilsin
+        ap_close_at_ = now + p_.handover_ms;
+        if (a.ev == NetEvent::CONNECTED) a.ev = NetEvent::AP_HANDOVER;
+      }
+      user_ = false;
     }
-    if (ap_) {
+    if (ap_ && (!hold_ || release_ || (int32_t)(now - ap_close_at_) >= 0)) {
       a.stop_ap = true;
       ap_ = false;
+      hold_ = false;
       if (a.ev == NetEvent::NONE) a.ev = NetEvent::AP_STOPPED;
     }
+    release_ = false;
     return a;
   }
   switch (phase_) {
     case NetPhase::ONLINE:   // bağlantı koptu
       a.stop_services = true;
+      hold_ = false;           // devir biter; AP açık kalır ve AP deneme aralığı uygulanır
+      result_ = NetResult::NONE;
       a.ev = NetEvent::DISCONNECTED;
       phase_ = NetPhase::WAITING;
       t0_ = now;
@@ -58,6 +77,9 @@ NetActions NetFsm::step(const NetInput& in, uint32_t now) {
           beginAttempt(in, now, a);
           a.ev = NetEvent::STATIC_TO_DHCP;
         } else {
+          result_ = NetResult::FAILED;
+          fail_ = in.fail;
+          user_ = false;
           a.stop_sta = true;
           if (!ap_) { a.start_ap = true; ap_ = true; }
           a.ev = NetEvent::TIMEOUT_TO_AP;
@@ -73,7 +95,30 @@ NetActions NetFsm::step(const NetInput& in, uint32_t now) {
       if (in.configured) beginAttempt(in, now, a);   // kimlik başka yoldan geldi (requestReconnect'siz)
       break;
   }
+  release_ = false;            // devir dışında "bitir" isteği birikmez
   return a;
+}
+
+uint32_t NetFsm::apCloseInMs(uint32_t now) const {
+  if (!hold_) return 0;
+  const int32_t left = (int32_t)(ap_close_at_ - now);
+  return left > 0 ? (uint32_t)left : 0;
+}
+
+NetFail classifyWifiReason(uint16_t r) {
+  switch (r) {
+    case 0: case 8: return NetFail::NONE;            // 8 ASSOC_LEAVE: kendi disconnect çağrımız
+    case 201: return NetFail::NOT_FOUND;
+    case 2: case 14: case 15: case 23: case 202: case 204: return NetFail::AUTH;
+    case 203: case 17: case 18: case 19: case 20: case 21: return NetFail::ASSOC;
+    case 200: return NetFail::SIGNAL_LOST;
+    default: return NetFail::OTHER;
+  }
+}
+
+NetFail netFailFrom(uint16_t last_reason, bool l2_connected_no_ip) {
+  if (l2_connected_no_ip) return NetFail::NO_IP;
+  return classifyWifiReason(last_reason);
 }
 
 uint32_t NetFsm::retryInMs(uint32_t now) const {

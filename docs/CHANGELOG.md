@@ -247,3 +247,36 @@ Kullanıcı isteği: ilk açılışta AP modu, sonra Wi-Fi bağlantısı; bağla
 4. **OTA parolasız açılmaz** (D-17) — 4chRelayModule'ün parolasız varsayılanı alınmadı.
 5. **Oturum yok (F4).** Yazma uçları yalnız `X-SCADA` başlığıyla korunur; SECURITY §2'deki parola/oturum F4'te.
 6. Ağ ayarları NVS'e doğrudan yazılır (StorageTask tek sahipliği F3'te; F2 sapma 4'ün devamı).
+
+## F2.3 — İlk kurulum ve Wi-Fi kurtarma deneyimi (`scada-wifi-onboarding`) (25.09.2026)
+
+Kullanıcı isteği: firmware'in ilk kurulum ve Wi-Fi kurtarma akışını beceri dosyasına göre yeniden tasarlamak ve güncellemek. Ayrıntı: [NETWORK.md §3](NETWORK.md) (D-24).
+
+### Önceki durum (statik inceleme)
+
+- Kayıt yanıtı “cihaz ağa geçiyor” diyordu; pencere kapanıp 5 s'lik toast çıkıyordu. Bağlantı sonucu doğrulanmıyordu.
+- Kurulum ağından kayıt başarılı olunca AP aynı tikte kapanıyor, sayfa sonucu ve yeni IP'yi göremiyordu.
+- `ap_mode` ilk kurulumla kurtarmayı ayırmıyor, hata nedeni hiç raporlanmıyordu; ağ değişiminde genel “veri bayat” alarmı çıkıyordu.
+- Wi-Fi değişiminde eski bağlantının `WL_CONNECTED` durumu bir tik için yeni ağa bağlanıldı sanılabiliyordu.
+
+### Değişenler
+
+- `cc_netfsm`: **devir** (bağlandığında kurulum ağında kullanıcı varsa — web'den kayıt veya AP istemcisi — AP 120 s açık kalır, `releaseAp()` erken kapatır), `trySeq()` ayar kaynaklı deneme sayacı, `result()` (NONE/TRYING/CONNECTED/FAILED), `lastFail()` + `classifyWifiReason()` / `netFailFrom()`. Test: 9 → 13.
+- `net_manager`: `WiFi.onEvent` ile kopma nedeni, L2/IP kanıtı; STA bağlı sayılması için bu denemede `GOT_IP` şartı; `retryNow()`, `finishSetup()`; 64 karakterlik parola yalnız onaltılık anahtar.
+- `web`: `/api/data` ağ alanları (`net_phase, net_setup, net_try, net_result, net_fail, net_fail_code, net_retry_s, ap_close_s, ap_clients, sta_ip, static_ip`); `POST /api/settings` yanıtı `{message, reconnect, net_try_base}` (kayıt ≠ bağlantı metni); `POST /api/net/retry`, `POST /api/net/finish`. FW 0.2.3.
+- UI (`15_wifi.js` yeniden yazıldı): Genel Bakış'ta ilk kurulum / kurtarma / devir kartı; 3 adımlı Wi-Fi penceresi (2.4 GHz sabit bilgisi, seçili ağ işareti, “Ağım görünmüyor” + gizli ağ, göster/gizle parola, UTF-8 bayt doğrulaması, “Kaydettiğinizde” kutusu, cihaz kanıtına bağlı üç aşama, neden sınıfı metinleri, belirsiz sonuç, kopyalanabilir adresler, “Cihaza ulaşamıyorum” yardımı); beklenen kopmada tek sakin not; Bakım'da Wi-Fi silme ayrı akış ve kalıcı yönerge; kurulum formunda 16 px metin kutusu ve 44 px dokunma alanı (proje ölçeğine açık istisna). Sahte cihaz yeni sözleşmeyle (şifre `yanlisparola` → AUTH, `TurkTelekom_ZX91` → NOT_FOUND).
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (bulut, g++ 13 + Unity, `-Werror`) | 17 paket / 203 test geçti (`test_netfsm` 13) |
+| ESP32 derleme (arduino-cli, Arduino-ESP32 2.0.17, ArduinoJson 7.4.3, `-Wall -Wextra`) | Uyarısız; flash 977 437 B, statik RAM 69 868 B |
+| UI (Playwright + sahte cihaz; 390 px açık tema, 1280 px koyu tema) | İlk kurulum → tarama → yanlış parola → AUTH metni → parolayı yeniden gir → devir → Kurulumu bitir; normal ağdan değişim; JS hatası yok |
+| `pio run`, `pio test -e native`, HIL H17–H18, H21, H23–H26 | **Yapılmadı** — sandbox'ta PlatformIO kayıt sunucusu engelli; kullanıcı makinesinde ve açık talimatla |
+
+### Tasarımdan sapmalar
+
+1. Beceri şartnamesindeki “Kaydet ve yeniden başlat” yerine **“Kaydet ve bağlan”**: bu firmware Wi-Fi değişimini yeniden başlatmadan uygular (F2.2 sapma 3); metinler gerçek davranışa göre yazıldı.
+2. Devir süresi (120 s) ve “Kurulumu bitir” yeni firmware yeteneğidir; STA farklı kanaldaysa ESP32 AP'si kanal değiştirir ve telefon kısa süre kopabilir — UI bunu beklenen durum olarak anlatır (HIL H26).
+3. Neden sınıfları olasılık bildirir; ESP32 yanlış parolada çoğunlukla 15/204 verir, zayıf sinyal de aynı kodları üretebilir.

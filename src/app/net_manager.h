@@ -26,7 +26,16 @@ struct Status {
   uint8_t phase = 0;                   // cc::NetPhase
   uint32_t retry_s = 0;
   uint32_t reconnects = 0;
+  // Kurulum/kurtarma akışı (docs/NETWORK.md §3): UI sonucu yalnız bu cihaz kanıtlarına dayandırır
+  bool handover = false;               // STA bağlı + kurulum ağı devir için açık
+  uint32_t ap_close_s = 0;             // devirde kurulum ağının kapanmasına kalan süre
+  uint32_t try_seq = 0;                // ayar kaynaklı deneme sayacı
+  uint8_t result = 0;                  // cc::NetResult
+  uint8_t fail = 0;                    // cc::NetFail (son başarısız deneme)
+  uint16_t fail_code = 0;              // ham wifi_err_reason_t (tanı)
+  uint8_t ap_clients = 0;              // kurulum ağındaki istemci sayısı
   char ip[16] = "0.0.0.0";
+  char sta_ip[16] = "";                // yalnız STA bağlıyken
   char ap_name[24] = "";
   char ssid[33] = "";
   char note[96] = "";                  // ör. "Statik IP başarısız; DHCP ile bağlandı"
@@ -48,6 +57,8 @@ bool wifiOk();
 // ssid == nullptr: kablosuz kimlik değişmez. pass == nullptr: parola korunur; "" = açık ağ.
 bool apply(const NetSettings& n, const char* ssid, const char* pass, const char** err, const char** field, bool* reconnect);
 bool resetWifi(const char** err);      // kimlik silinir, statik kapanır, yeniden başlatmadan AP
+bool retryNow();                       // kayıtlı ağı hemen yeniden dene (SSID yoksa false)
+bool finishSetup();                    // devirdeki kurulum ağını kapat (devir yoksa false)
 bool setOtaPassword(const char* pw, const char** err);   // "" = kaldır (OTA kapanır, D-17)
 void requestReboot(uint32_t delay_ms); // yanıt gönderildikten sonra güvenli yeniden başlatma
 

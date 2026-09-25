@@ -36,6 +36,7 @@
 | D-18 | `controller_enable=OFF` yalnız yerel | ENTITY_MODEL §1 |
 | D-19 | `sched_*` istekleri `sched_timeout_h` ile kendiliğinden düşer | CONTROL_ARCHITECTURE §3.3 |
 | D-20 | Boot sonrası `heater_was_on` ise post-cool | OUTPUT_AND_INTERLOCKS §6 |
+| D-22 | F2 donanımı: DHT22, T2 yok, 2 × 1000 W SSR_ZC, aktif-LOW fan röleleri, ARM yok (sapma), NTP, 8 MB bölüm tablosu | [CHANGELOG F2](CHANGELOG.md), [HIL.md](HIL.md) |
 | D-21 | Yerel program modülü: WEEKLY/DATE_RANGE/ONCE, durumsuz değerlendirme, öncelik BOOST › açık profil › program › Suite | [ADR-009](ADR/ADR-009-local-programs.md), [PROGRAMS.md](PROGRAMS.md) |
 
 ## 3. Açık konular
@@ -83,19 +84,19 @@
 | 2 ★ | Profil çözüm önceliği ve Programs yaklaşımı (ADR-005) onayı | Kullanıcı | Zorunlu | ☑ 25.09.2026 |
 | 3 ★ | Havalandırma koordinasyon varsayılanları (INHIBIT, VENT_WINS) onayı | Kullanıcı | Zorunlu | ☑ 25.09.2026 |
 | 4 ★ | Başlangıç limitleri (40 °C, 240 dk, 10 s stale, 4 °C frost) onayı | Kullanıcı | Zorunlu | ☑ 25.09.2026 |
-| 5 | Sensör modeli seçildi (OI-H1) ve T2 kararı (OI-H2) | Kullanıcı | Zorunlu | ☐ |
-| 6 | R ve fan sürücü tipi, anma değerleri (OI-H4, OI-H5) | Elektrik tasarımı | Zorunlu | ☐ |
-| 7 | Rezistans güçleri (OI-H3) | Kullanıcı | Zorunlu | ☐ |
-| 8 | Pin haritası, polarite, pull-down'lar, strapping kontrolü (OI-H9) | Donanım | Zorunlu | ☐ |
-| 9 | `HEATER_ARM` devresi kararı (OI-H6) | Donanım | Zorunlu | ☐ |
+| 5 | Sensör modeli seçildi (OI-H1) ve T2 kararı (OI-H2) | Kullanıcı | Zorunlu | ☑ 25.09.2026 — DHT22, T2 yok |
+| 6 | R ve fan sürücü tipi, anma değerleri (OI-H4, OI-H5) | Elektrik tasarımı | Zorunlu | ◐ 25.09.2026 — SSR_ZC + aktif-LOW röle modülü; SSR/soğutucu anma değerleri elektrik tasarımında |
+| 7 | Rezistans güçleri (OI-H3) | Kullanıcı | Zorunlu | ☑ 25.09.2026 — 2 × 1000 W |
+| 8 | Pin haritası, polarite, pull-down'lar, strapping kontrolü (OI-H9) | Donanım | Zorunlu | ☑ 25.09.2026 — `src/app/pins.h`; donanımda ölçüm HIL H1 |
+| 9 | `HEATER_ARM` devresi kararı (OI-H6) | Donanım | Zorunlu | ☑ 25.09.2026 — **ARM yok** (sapma, CHANGELOG F2 #1) |
 | 10 | Bağımsız termik kesici, sigorta/MCB, RCD, PE, izolasyon tasarımı (SAFETY_DESIGN §5) | Elektrikçi | Zorunlu (enerjilendirmeden önce) | ☐ |
-| 11 | Framework ve MQTT kütüphanesi (OI-S1, OI-S2) | Geliştirici | Zorunlu | ☐ |
+| 11 | Framework ve MQTT kütüphanesi (OI-S1, OI-S2) | Geliştirici | Zorunlu | ☑ 25.09.2026 — Arduino-ESP32 2.0.17 + IDF, esp-mqtt |
 | 12 ★ | Native test altyapısı (PlatformIO `native` ortamı) | Geliştirici | Zorunlu | ◐ 25.09.2026 — `[env:native]` + 13 Unity paketi eklendi; `pio test -e native` kullanıcı makinesinde doğrulanacak |
-| 13 | Flash bölüm tablosu (OTA×2, LittleFS, NVS, coredump payı) | Geliştirici | Zorunlu | ☐ |
+| 13 | Flash bölüm tablosu (OTA×2, LittleFS, NVS, coredump payı) | Geliştirici | Zorunlu | ☑ 25.09.2026 — `partitions_8mb_ota.csv` |
 | 14 | Suite test ortamı: broker, Studio, `broker_teshis.py` erişimi | Kullanıcı | Faz 5 öncesi | ☐ |
 | 15 | Web UI font/ikon varlıkları (IBM Plex WOFF2 + OFL) | Geliştirici | Faz 4 öncesi | ☐ |
-| 16 | Saat kaynağı kararı (NTP sunucusu / RTC) (OI-H10) — yerel programlar için zorunlu (ADR-009) | Kullanıcı | **Faz 2 öncesi** | ☐ |
-| 17 | HIL test düzeneği (rezistans yerine güvenli yük/lamba, sensör simülasyonu) | Geliştirici | Faz 2 öncesi | ☐ |
+| 16 | Saat kaynağı kararı (NTP sunucusu / RTC) (OI-H10) — yerel programlar için zorunlu (ADR-009) | Kullanıcı | **Faz 2 öncesi** | ☑ 25.09.2026 — NTP (pool.ntp.org + ağ geçidi) |
+| 17 | HIL test düzeneği (rezistans yerine güvenli yük/lamba, sensör simülasyonu) | Geliştirici | Faz 2 öncesi | ◐ 25.09.2026 — [HIL.md](HIL.md), HIL imajında `sim`/`hang`; uygulama bekliyor |
 | 18 | Suite geliştirme talepleri kaydı (M3, M4, M8) | Kullanıcı | Hayır | ☐ |
 
 ## 5. Gelecek geliştirmeler (özet)
@@ -111,3 +112,4 @@ T2 zorunlu hâle getirme, akım/RPM geri bildirimi, dış sıcaklık ve PID iler
 | 25.09.2026 | S7 yorumu onaylandı: `max_continuous_heating_min` sayacı yalnız talep doyumdayken birikir | CHANGELOG F1 madde 1; SAFETY_DESIGN §3 S7 notu |
 | 25.09.2026 | F4 UI önizlemesi (sahte cihaz) hazırlandı | Kullanıcı isteği; CHANGELOG “F4 önizleme” |
 | 25.09.2026 | Yerel program modülü eklendi (D-21, ADR-009); çekirdek F1b'de uygulandı, UI önizlemede | Kullanıcı isteği; checklist 16 F2 öncesine çekildi |
+| 25.09.2026 | F2 donanım kararları onaylandı (D-22), ARM hattı olmaması sapma olarak kabul edildi; F2 uygulandı | Kullanıcı onayı; CHANGELOG F2 |

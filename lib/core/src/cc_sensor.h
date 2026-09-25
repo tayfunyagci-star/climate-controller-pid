@@ -6,6 +6,7 @@
 namespace cc {
 
 enum class DrvStatus : uint8_t { OK, MISSING, TIMEOUT, CRC_ERROR, BUS_ERROR, NOT_READY };
+const char* name(DrvStatus);
 
 struct RoleParams {
   float phys_min = -40, phys_max = 85;     // dışında BAD

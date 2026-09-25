@@ -50,9 +50,10 @@ Sözleşme (implementasyon dili bağımsız):
 | BME280 | T, RH, P | I²C/SPI | Hayır | Basınç bonusu | CRC yok → makullük kontrolüne dayanılır; öz ısınma (forced mode kullan) |
 | BME680 | T, RH, P, gaz | I²C/SPI | Hayır | VOC eğilimi | Gaz ısıtıcısı T'yi yükseltir; BSEC lisansı/karmaşıklık; ısınma dönemi |
 | AHT20 | T, RH | I²C | Evet (CRC8) | Ucuz | Kalibrasyon bitini kontrol et |
+| DHT22 / AM2302 | T, RH | Tek hat (özel) | Checksum (8 bit toplam) | Ucuz, uzun kablo (≤ 20 m), **v1 seçimi** | Örnekleme ≥ 2 s; ±0.5 °C, ±2–5 % RH; zamanlama kritik → RMT ile yakalama; kimlik/seri no yok (var/yok yalnız yanıtla) |
 | DS18B20 | T | 1-Wire | Evet | Uzun kablo, T2 için uygun, su geçirmez prob | Nem yok → ayrı RH sensörü; 85.0 °C güç-açılış değeri geçersiz sayılır |
 
-**ASSUMPTION / öneri:** T1+RH1 için SHT4x; T2 için DS18B20 prob (rezistans hava çıkışında, 125 °C'ye dayanıklı). Nihai seçim **OPEN ISSUE**.
+**KARAR (25.09.2026, D-22):** T1+RH1 için DHT22/AM2302 (GPIO4); T2 v1'de yok. Çözücü `lib/core/src/cc_dht.*` (native testli), yakalama `src/app/hal_dht22.*`. SHT4x ve DS18B20 T2 genişleme seçeneği olarak kalır.
 
 ## 4. Doğrulama ve kalite modeli
 

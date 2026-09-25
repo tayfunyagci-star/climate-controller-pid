@@ -140,6 +140,7 @@ flowchart LR
 - **DESIGN DECISION:** Çekirdek yerleşimi ölçüme göre seçilir; başlangıç önerisi Wi-Fi/NetTask çekirdek 0, Safety/Output/Control/Sensor çekirdek 1. Bu bir şart değildir (baseline §10).
 - **DESIGN DECISION — tek sahiplik:** GPIO yalnız OutputTask; MQTT istemcisi yalnız NetTask; flash yalnız StorageTask. Diğer görevler **kuyruk** (komut, yayın bayrağı, kayıt isteği) veya **sürümlü snapshot** kullanır.
 - **DESIGN DECISION — paylaşılan durum:** `ProcessSnapshot` (ölçümler, talepler, çıkış requested/effective/reason, durumlar) ControlTask tarafından üretilir ve çift tamponlu + sıra sayaçlı (seqlock) yayınlanır; okuyucular kilitsiz tutarlı kopya alır. `volatile` eşzamanlama aracı olarak kullanılmaz.
+- **UYGULAMA (F2):** Safety/Output/Control/Sensor görevleri `ClimateCore` aşamalarını tek öncelik mirasçı çekirdek kilidi altında çağırır; aşamaya ölçülen gerçek dt verilir, geç kalan görev yetişme patlaması yapmaz (sabit dt + yetişme, post-cool'u gecikme kadar kısaltır — `test_tasking`). F2'de snapshot kilit altında kopyalanır; seqlock F4/F5'te.
 - **DESIGN DECISION — kilit sırası:** `fsMutex → sysMutex`; flash I/O sırasında RAM kilidi, ağ çağrısı sırasında hiçbir kilit tutulmaz (baseline §2).
 - **DESIGN DECISION — komut yolu:** HTTP ve MQTT handler'ları doğrulanmış `Command` nesnesini sınırlı `cmdQueue`'ya (ör. 16) bırakır; dolu kuyruk `503/BUSY` ile görünür ret üretir. Handler hiçbir çıkışı sürmez.
 

@@ -107,6 +107,24 @@ void ClimateCore::feedT2(DrvStatus st, float raw) { t2f_.sample(st, raw, 0, chai
 
 // ---------------- Zaman ----------------
 void ClimateCore::tick(uint32_t dt) {
+  baseTick(dt);
+  acc_saf_ += dt;
+  while (acc_saf_ >= kSafetyPeriodMs) { acc_saf_ -= kSafetyPeriodMs; safetyStep(kSafetyPeriodMs); }
+  const uint32_t ci = controlPeriodMs();
+  acc_ctrl_ += dt;
+  while (acc_ctrl_ >= ci) {
+    acc_ctrl_ -= ci;
+    if (!freeze_control_) controlStep(ci);
+  }
+  acc_out_ += dt;
+  while (acc_out_ >= kOutputPeriodMs) {
+    acc_out_ -= kOutputPeriodMs;
+    if (!freeze_output_) outputStep(kOutputPeriodMs);
+  }
+  updateSnapshot();
+}
+
+void ClimateCore::baseTick(uint32_t dt) {
   up_ms_ += dt;
   t1f_.tick(dt);
   rhf_.tick(dt);
@@ -134,20 +152,6 @@ void ClimateCore::tick(uint32_t dt) {
     runSelfTest();
   }
 
-  acc_saf_ += dt;
-  while (acc_saf_ >= kSafetyPeriodMs) { acc_saf_ -= kSafetyPeriodMs; safetyStep(kSafetyPeriodMs); }
-  const uint32_t ci = sToMs((float)cfg_.control_interval_s);
-  acc_ctrl_ += dt;
-  while (acc_ctrl_ >= ci) {
-    acc_ctrl_ -= ci;
-    if (!freeze_control_) controlStep(ci);
-  }
-  acc_out_ += dt;
-  while (acc_out_ >= kOutputPeriodMs) {
-    acc_out_ -= kOutputPeriodMs;
-    if (!freeze_output_) outputStep(kOutputPeriodMs);
-  }
-  updateSnapshot();
 }
 
 void ClimateCore::runSelfTest() {

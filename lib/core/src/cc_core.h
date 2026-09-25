@@ -106,7 +106,13 @@ class ClimateCore {
   void setT1Missing(bool m) { t1f_.setMissing(m); }
 
   // ---- Zaman ----
+  // Tek iş parçacıklı sürücü (native simülasyon/test): baseTick + aşamalar periyotlarına göre + publish.
   void tick(uint32_t dt_ms = kBaseTickMs);
+  // Görevli sürücü (hedef): SafetyTask baseTick + safetyStep + publish; OutputTask outputStep;
+  // ControlTask controlStep. Çağıranlar tek bir çekirdek kilidi altında sıralanır (SYSTEM_ARCHITECTURE §4).
+  void baseTick(uint32_t dt_ms);   // zamanlayıcılar, heartbeat yaşları, sensör yaşı, SELF_TEST, kilit, rotasyon
+  void publish() { updateSnapshot(); }
+  uint32_t controlPeriodMs() const { return (uint32_t)cfg_.control_interval_s * 1000u; }
   void controlStep(uint32_t dt_ms);
   void outputStep(uint32_t dt_ms);
   void safetyStep(uint32_t dt_ms);

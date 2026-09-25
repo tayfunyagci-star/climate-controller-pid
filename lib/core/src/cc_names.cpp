@@ -1,6 +1,7 @@
 // Sabit ad tabloları (MQTT/UI tel değerleri). Sözlük kapalıdır; değişiklik sürüm notuna yazılır.
 #include "cc_types.h"
 #include "cc_events.h"
+#include "cc_sensor.h"
 
 namespace cc {
 
@@ -38,6 +39,7 @@ CC_NAME_FN(CmdSource, "SAFETY", "INTERLOCK", "LOCAL_SERVICE", "LOCAL_WEB", "MQTT
 CC_NAME_FN(CmdResult, "ACCEPTED", "OVERRIDDEN", "REJECTED_INVALID", "REJECTED_RELATION", "REJECTED_POLICY",
            "REJECTED_BUSY", "REJECTED_STATE")
 CC_NAME_FN(Saturation, "NONE", "HIGH", "LOW")
+CC_NAME_FN(DrvStatus, "OK", "MISSING", "TIMEOUT", "CRC_ERROR", "BUS_ERROR", "NOT_READY")
 
 CC_NAME_FN(EvSrc, "STATE", "SAFETY", "CONTROLLER", "OUTPUT", "ALARM", "COMMAND", "CONFIG", "NET", "SYSTEM", "SERVICE")
 CC_NAME_FN(EvCode, "NONE", "STATE_CHANGE", "HEATING_START", "POST_COOL_START", "POST_COOL_END", "STAGE2_ON",

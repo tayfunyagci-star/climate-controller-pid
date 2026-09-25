@@ -116,3 +116,64 @@ Kullanıcı isteği: haftanın günleri, belirli tarihler, belirli saatler, beli
 | F4 | `/api/programs` GET/POST, `/api/cmd` kimlikleri, sayfa — UI önizlemede hazır |
 | F5 | MQTT: `programs_enabled` (switch), `program_active`, `program_until` (sensor), `program_hold` (button) |
 | F8 | HIL: gün dönümü, saat düzeltmesi, kesinti sonrası doğru program |
+
+## F2 — HAL + FreeRTOS görevleri + seri konsol (25.09.2026)
+
+### Donanım kararları (kullanıcı onayı 25.09.2026)
+
+| Konu | Karar |
+|---|---|
+| T1/RH1 (OI-H1) | DHT22/AM2302, GPIO4, 4.7 kΩ pull-up; örnekleme 2 s |
+| T2 (OI-H2) | Yok → post-cool yalnız süre (TIME); S2/S6 devre dışı |
+| Rezistans (OI-H3) | 2 × 1000 W, eşit (`heater_power_w_r1/r2 = 1000`) |
+| R sürücü (OI-H4) | Sıfır geçişli SSR, `SSR_ZC` profili; GPIO5/6 aktif-HIGH, NPN/MOSFET low-side, 10 kΩ pull-down |
+| Fan sürücü (OI-H5) | 5 V aktif-LOW optokuplörlü röle modülü; GPIO7 (HF), GPIO15 (VF); JD-VCC 5 V / VCC 3.3 V, 10 kΩ pull-up |
+| ARM hattı (OI-H6) | **Yok** — sapma 1 |
+| Kart (OI-H9) | ESP32-S3-DevKitC-1 N8R8/N8R2, 8 MB flash; PSRAM kullanılmıyor; GPIO35–37 boş |
+| Saat (OI-H10, checklist 16) | NTP: `pool.ntp.org` (konsoldan değiştirilebilir) + 2. sunucu ağ geçidi; RTC yok |
+| Buton/LED (OI-H11) | BOOT butonu (GPIO0, yalnız giriş) + dahili WS2812 (GPIO48; v1.1 kartta GPIO38) |
+| Framework / MQTT (OI-S1/S2) | Arduino-ESP32 2.0.17 (espressif32@6.9.0) + IDF API; MQTT F5'te esp-mqtt |
+| Bölüm tablosu (checklist 13) | `partitions_8mb_ota.csv`: nvs 20 KB, otadata, app0/app1 3 MB, LittleFS 1.875 MB, coredump 64 KB |
+| İlk HIL | SSR girişlerinde LED, şebeke bağlı değil ([HIL.md](HIL.md)) |
+
+### Eklenenler
+
+- `src/app/pins.h` — pin haritası ve polarite tablosu (cc::Out sırası).
+- `src/app/hal_outputs.*` — önce pasif seviye yazımı, sonra çıkış yönü; her çevrimde dört pin yeniden yazılır; acil yol yalnız R1/R2'yi pasife çeker.
+- `src/app/hal_dht22.*` — RMT RX (1 µs tık, 300 µs boşta eşiği) ile darbe yakalama; başlatma darbesi 2–3 ms RTOS uykusu; yakalama başlatma + hat bırakma görev geçişsiz (`vTaskSuspendAll`). Meşgul bekleme ve `delay()` yok.
+- `lib/core/src/cc_dht.*` — DHT22 çerçeve çözücü (saf, native testli): son 40 bit, bit genişliği ve LOW aralığı denetimi, checksum → `CRC_ERROR`, yanıt yok → `TIMEOUT`, aralık dışı → `BUS_ERROR`; geçersiz ölçüm NaN.
+- `src/app/tasks.*` — Safety (250 ms, öncelik 10), Output (100 ms, 9), Control (`control_interval_s`, 7), Sensor (≥ 2 s, 6); hepsi çekirdek 1, tek öncelik mirasçı mutex. Safety ve Output TWDT'ye abone (5 s, panik → reset), çekirdek 1 idle izleniyor.
+- `ClimateCore::baseTick()` / `publish()` / `controlPeriodMs()` — `tick()` bunlara bölündü (davranış değişmedi); hedefte görevler aşamaları ayrı çağırır.
+- `src/app/boot_state.*` — reset nedeni; RTC_NOINIT bloğunda `heater_was_on`, hatalı boot sayacı, kilitli safety bitleri, acil yol işareti.
+- `src/app/net_clock.*` — Wi-Fi istasyonu (kimlik NVS `net` alanında, parola yazdırılmaz), SNTP; saat yalnız en az bir eşitleme + makul epoch ile geçerli.
+- `src/app/console.*` — seri konsol: `status`, `watch`, `set <id> <değer>` (LOCAL_SERVICE), `ack`, `reset`, `service`, `test`, `recovery`, `wifi`, `ntp`, `reboot` (ısıtma/post-cool sürerken reddedilir); olay günlüğü akışı; durum LED'i. HIL imajında `sim`, `hang`.
+- `src/app/core_api.h` — Arduino makroları (`PI`, `HIGH`, `LOW`, `DISABLED`, `OUTPUT`) çekirdek numaralandırıcılarıyla çakışıyordu; başlıklar makrolar geçici kaldırılarak içerilir. Liste Arduino-ESP32 2.0.17 makro kümesiyle çekirdek tanımlayıcılarının kesişimidir (`g++ -dM -E`). **F1'deki `src/main.cpp` bu çakışma nedeniyle hedefte derlenmiyordu; F1 raporundaki "pio run çalıştırılmadı" notu bu hatayı gizlemişti.**
+- `platformio.ini` — platform sürümü sabit (`espressif32@6.9.0`), özel bölüm tablosu, `esp32-s3-hil` ortamı (`-DCC_HIL=1`).
+- `test/native/test_dht` (9 test), `test/native/test_tasking` (5 test: F2 konfigürasyonu, bölünmüş görevlerle boot/ısıtma, control heartbeat, 2 s sensör kaybı, 16 tohum × 2 sa rastgele faz + gecikme altında çıkış değişmezleri).
+- `docs/HIL.md` — H1–H15 donanımlı test listesi.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (bulut, g++ 13 + Unity) | 16 paket / 189 test geçti |
+| Aynı testler ASan/UBSan | Geçti |
+| ESP32-S3 hedef derleme (bulut, arduino-cli + Arduino-ESP32 2.0.17 + xtensa-esp32s3 gcc 8.4.0, `-Wall -Wextra`) | Üretim ve HIL imajı uyarısız derlendi. Üretim: flash 740 625 B, statik RAM 58 464 B |
+| Bölüm tablosu (`gen_esp32part.py --flash-size 8MB`) | Geçerli |
+| `pio test -e native`, `pio run` (PlatformIO) | **Çalıştırılmadı** (registry sandbox'ta erişilemez); kullanıcı makinesinde doğrulanacak |
+| HIL | **Yapılmadı** — karta yükleme açık talimat bekliyor |
+
+### Tasarımdan sapmalar
+
+1. **HEATER_ARM hattı yok (SR-04, ADR-008 karşılanmıyor) — kullanıcı kararı.** Tek GPIO'nun takılı kalması rezistansı açık tutabilir. Telafi: (a) OutputTask 1 s çalışmazsa veya SafetyTask çekirdek kilidini 1 s alamazsa acil yol R hatlarını doğrudan pasife çeker ve yeniden başlatır (GPIO tek sahiplik kuralının belgeli tek istisnası); (b) SafetyTask takılırsa TWDT ≤ 5 s içinde panik reset → pinler yüksek empedans → pull-down SSR'yi kapatır; (c) elle resetli bağımsız termik kesici enerjilendirmeden önce zorunlu. Artık risk: SafetyTask donduğunda ≤ 5 s. GPIO17 ileride ARM için ayrıldı.
+2. **Görevlere gerçek dt verilir.** Geç kalan görev yetişme patlaması yapmaz; aşamaya son çalışmadan beri geçen süre verilir. Sabit periyot + yetişme çağrıları, post-cool'u fiziksel olarak gecikme kadar kısaltıyordu (native `test_tasking` bu hatayı yakaladı). SYSTEM_ARCHITECTURE §4'e not düşüldü.
+3. **ProcessSnapshot seqlock yerine kilit altında kopya.** F2 okuyucusu yalnız konsol; web/MQTT (F4/F5) için seqlock çift tampon ertelendi.
+4. **Wi-Fi kimliği ve NTP sunucusu F2'de NVS'e doğrudan yazılıyor** (StorageTask tek sahipliği F3'te). NVS, config dosyalarından ayrı alan (`net`).
+5. **Sensör sürücüsü konfigürasyonda seçilmiyor;** DHT22 derleme zamanında sabit. `sensor_interval_s < 2` ise SensorTask 2 s uygular; F3 doğrulayıcısına "DHT22 ⇒ ≥ 2 s" kuralı eklenecek.
+6. **Güç kesintisine dayanıklılık:** `heater_was_on`, hatalı boot sayacı ve kilitli safety bitleri F2'de RTC belleğinde (yalnız yazılım/WDT resetleri). Restart fırtınası penceresi yaklaşık: RUN'da 30 dk kesintisiz çalışma sayacı sıfırlar.
+
+### Açık kalanlar (F2)
+
+- Kullanıcı makinesinde `pio test -e native`, `pio run -e esp32-s3-devkitc-1`, `pio run -e esp32-s3-hil`.
+- HIL H1–H15 (açık talimatla yükleme sonrası).
+- Checklist 10 (termik kesici, sigorta/MCB, RCD, PE) — HIL-2 ve enerjilendirme öncesi.

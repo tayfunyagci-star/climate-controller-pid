@@ -8,4 +8,5 @@ namespace web {
 void begin();    // rotaları kaydeder (ağ yığını gerektirmez)
 void start();    // dinleme soketini açar (ilk WiFi.mode çağrısından sonra)
 void handle();   // NetTask döngüsünden
+const char* uiBuild();   // gömülü UI revizyonu (ui_generated.h yalnız web.cpp'de derlenir)
 }

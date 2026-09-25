@@ -9,6 +9,7 @@
 #include "boot_state.h"
 #include "hal_dht22.h"
 #include "hal_outputs.h"
+#include "mqtt_client.h"
 #include "net_manager.h"
 
 namespace app {
@@ -139,10 +140,12 @@ void controlTask(void*) {
     const bool cv = net::clockValid();
     const int64_t ep = net::epochUtc();
     const bool wcfg = net::wifiConfigured(), wok = net::wifiOk();
+    const mq::Status mqs = mq::status();
+    const bool mqtt_cfg_on = mqs.state != mq::State::Disabled, mqtt_ok = mqs.state == mq::State::Connected;
     if (xSemaphoreTake(g_mtx, pdMS_TO_TICKS(500)) == pdTRUE) {
       const int64_t t0 = esp_timer_get_time();
       g_core->setClock(cv, ep);
-      g_core->setNetStatus(wcfg, wok, false, false);  // MQTT F5
+      g_core->setNetStatus(wcfg, wok, mqtt_cfg_on, mqtt_ok);   // MQTT_OFFLINE: yapılandırılmış ama bağlı değil
       g_core->controlStep(dt);
       period = g_core->controlPeriodMs();
       noteTime(T_CTL, t0);

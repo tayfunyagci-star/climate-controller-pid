@@ -17,6 +17,7 @@
 #include "cc_core.h"
 #include "cc_dht.h"
 #include "cc_ledstrip.h"
+#include "cc_mqtt_map.h"
 #pragma pop_macro("OUTPUT")
 #pragma pop_macro("DISABLED")
 #pragma pop_macro("LOW")

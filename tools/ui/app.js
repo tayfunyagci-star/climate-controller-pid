@@ -400,6 +400,7 @@ function renderGlobalNotices(st) {
     if (D.ap_mode && D.net_setup !== 'HANDOVER' && !(currentRoute === 'overview' && !setupCollapsed))
       list.push(['warn', (D.wifi_ssid ? 'Cihaz kayıtlı Wi-Fi ağına bağlanamadı; ' : 'Wi-Fi kurulumu tamamlanmadı; ') + 'kurulum ağı “' + (D.ap_name || 'SCADA_AP') + '” açık (' + (D.ap_ip || '192.168.4.1') + '). Ağ seçimi: Genel Bakış.']);
     if (D.net_note) list.push(['warn', D.net_note]);
+    if (D.mqtt_status === 'AUTH_FAIL') list.push(['warn', 'MQTT broker kimlik bilgilerini reddetti. Ayarlar › MQTT bölümünden kullanıcı adı ve parolayı denetleyin.']);
     if (D.ota_password_set === false) list.push(['warn', 'OTA parolasız açık: aynı ağdaki herkes firmware yükleyebilir. Ayarlar › Erişim › OTA parolası bölümünden parola belirleyin.']);
     if (D.password_set === false) list.push(['warn', 'Web parolası tanımlı değil. Ayarlar › Erişim bölümünden parola belirleyin.']);
   }
@@ -2095,7 +2096,7 @@ const DEF = {
       ['mqtt_password', 'Yeni MQTT parolası', 'password', {ml: 128, off: 'clearMqttPassword', hint: 'Boş bırakılırsa kayıtlı parola korunur.'}],
       ['clearMqttPassword', 'Kayıtlı MQTT parolasını sil', 'checkbox', {ui: 1}]]],
     ['Topic ve yayın', [
-      ['mqtt_base', 'Kök topic', 'text', {req: 1, ml: 96, pat: '[^+#\\s]+', hint: 'Tam taban: <kök>/<SLUG>. SLUG değişimi taşınma sihirbazıyla yapılır.'}],
+      ['mqtt_base', 'Kök topic', 'text', {req: 1, ml: 96, pat: '[^+#\\s]+', hint: 'Tam taban: <kök>/<SLUG>. Kök değişince eski adrese offline yazılır ve eski kayıtlar silinir (taşınma).'}],
       ['slug', 'SLUG (MQTT kimliği)', 'text', {ro: 1, hint: 'Salt okunur. Görünen cihaz adı: Ağ › Cihaz kimliği.'}],
       ['state_active_s', 'Isıtırken yayın (s)', 'number', {min: 1, max: 30}], ['state_idle_s', 'Boşta yayın (s)', 'number', {min: 10, max: 59, hint: 'Suite nokta geçerlilik süresinden kısa olmalı (< 60 s).'}],
       ['diag_interval_s', 'Tanı yayını (s)', 'number', {min: 30, max: 300}],
@@ -2348,7 +2349,19 @@ builders.settings = sec => {
     setText($('#led-live-note'), d.led_ok === false ? 'LED sürücüsü başlatılamadı: şerit bağlantısını ve GPIO27’yi denetleyin.'
       : 'WS2812B şerit, GPIO27. İlk dört LED bütün SCADA cihazlarında aynıdır; sonrakiler cihaza özgüdür. Renkler kayıtlı ayarlarla gösterilir.');
   }
-  pageUpdaters.settings = d => updateLedLive(d);
+  function updateMqLive(d) {
+    const p = $('#mq-pill');
+    if (!p || !d) return;
+    const st = d.mqtt_status || 'DISABLED';
+    const map = {CONNECTED: ['ok', 'Bağlı'], CONNECTING: ['warn', 'Bağlanıyor'], BACKOFF: ['bad', 'Bağlantı yok'], AUTH_FAIL: ['bad', 'Kimlik reddedildi'], DISABLED: [null, 'Kapalı (broker tanımsız)']};
+    const [cls, txt] = map[st] || [null, st];
+    p.classList.remove('ok', 'bad', 'warn');
+    if (cls) p.classList.add(cls);
+    setText(p.lastChild, txt);
+    setText($('#mq-note'), d.mqtt_note || '—');
+    setText($('#mq-rec'), String(d.mqtt_reconnects ?? '—'));
+  }
+  pageUpdaters.settings = d => { updateLedLive(d); updateMqLive(d); };
 
   function valueOf(f) {
     if (f.type === 'checkbox') return f.input.checked;
@@ -2449,8 +2462,14 @@ builders.settings = sec => {
       if (Object.values(fields).some(f => f.sec === id && !f.o.ro)) p.append(savebar(id, label));
     });
     // Güvenlik bölümü notu
-    $('#panel-mqtt').prepend(h('div', {class: 'notice info'}, icon('info'),
-      h('span', {text: 'Ayarlar cihazda kalıcı olarak saklanır. MQTT bağlantısı (yayın, keşif, uzak komut) sonraki firmware sürümünde etkinleşecek; şimdilik broker’a bağlanılmaz.'})));
+    // Canlı bağlantı durumu (/api/data): kayıt ≠ bağlantı; sonuç cihazın bildirdiği durumdur
+    $('#panel-mqtt').prepend(h('section', {class: 'panel'}, h('h3', {text: 'MQTT durumu (canlı)'}),
+      h('dl', {class: 'kv', id: 'mq-live'},
+        h('dt', {text: 'Durum'}), h('dd', null, h('span', {class: 'pill', id: 'mq-pill'}, h('i'), h('span', {text: '—'}))),
+        h('dt', {text: 'Ayrıntı'}), h('dd', {id: 'mq-note', class: 'mono', text: '—'}),
+        h('dt', {text: 'Topic tabanı'}), h('dd', {id: 'mq-base', class: 'mono', text: d.mqtt_topic_base || '—'}),
+        h('dt', {text: 'Yeniden bağlanma'}), h('dd', {id: 'mq-rec', class: 'num', text: '—'})),
+      h('p', {class: 'field-hint', text: 'Keşif kayıtları Home Assistant / MQTT Studio için homeassistant/… altında yayımlanır. Broker ayarı kaydedilince bağlantı yeni ayarlarla yeniden kurulur.'})));
     $('#panel-safety').prepend(h('div', {class: 'notice warn'}, icon('warn'),
       h('span', {text: 'Güvenlik limitleri yalnız bu yerel arayüzden ve yönetici rolüyle değiştirilir; MQTT’den yazılamaz. Yazılım korumaları termik kesici, sigorta ve RCD’nin yerine geçmez.'})));
     renderAccessExtras($('#panel-access'), d);
@@ -2461,6 +2480,7 @@ builders.settings = sec => {
     applyDeps();
     refreshDirty();
     updateLedLive(D);
+    updateMqLive(D);
     iconize(sec);
   }
   function revertSection(id) {

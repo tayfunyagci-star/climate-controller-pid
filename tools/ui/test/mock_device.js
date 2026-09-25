@@ -347,7 +347,7 @@ function data() {
     ap_close_s: NET.hold > Date.now() ? Math.ceil((NET.hold - Date.now()) / 1000) : 0, ap_clients: flags.ap ? 1 : 0,
     sta_ip: NET.phase === 'ONLINE' ? '192.168.1.57' : '', static_ip: cfg.staticEnabled,
     device_name: c.adN, ip: NET.phase === 'ONLINE' ? '192.168.1.57' : '192.168.4.1', mdns: c.mdns, client_ip: '192.168.1.20', fw_version: '1.0.0', fw_build: 'r12',
-    wifi_ok: NET.phase === 'ONLINE', wifi_rssi: NET.phase === 'ONLINE' ? -61 : null, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', time_valid: 'ON', password_set: true, ota_password_set: !!flags.otaPw, ota_ready: NET.phase === 'ONLINE',
+    wifi_ok: NET.phase === 'ONLINE', wifi_rssi: NET.phase === 'ONLINE' ? -61 : null, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', mqtt_note: flags.broker ? '192.168.1.10:1883 · mqttsuite/climate/kulube_iklim_01' : 'Broker\'a ulaşılamadı · 8 s sonra yeniden denenecek', time_valid: 'ON', password_set: true, ota_password_set: !!flags.otaPw, ota_ready: NET.phase === 'ONLINE',
     temperature: ok ? +S.Tf.toFixed(1) : null, humidity: +S.RH.toFixed(1), temperature_quality: q, humidity_quality: 'GOOD', t2: null, t2_quality: 'DISABLED',
     sensor_ok: onoff(q === 'GOOD'), sensor_age_s: Math.round((S.t - S.lastGood) / 1000),
     temperature_setpoint: c.temperature_setpoint, setpoint_effective: +S.eff.toFixed(2), setpoint_source: S.src,
@@ -517,7 +517,7 @@ window.fetch = async function (url, opt) {
   if (p === '/api/net/finish') { if (!(NET.hold > Date.now())) return json({message: 'Kurulum ağı devir durumunda değil'}, 409); NET.hold = 0; setTimeout(() => { flags.ap = false; }, 300); return json({message: 'Kurulum ağı kapatılıyor.'}); }
   if (p === '/api/reset-wifi') { NET.phase = 'AP_ONLY'; NET.result = 'NONE'; NET.try++; flags.ap = true; flags.ssid = ''; ev('WARNING', 'NET', 'Wi-Fi kimliği silindi; kurulum AP’si açıldı'); return json({message: 'Wi-Fi silindi; kurulum AP’si açıldı (SCADA_AP_3C71BF4A)'}); }
   if (p === '/api/settings' && !body) {
-    const out = Object.assign({}, cfg, {otaPasswordSet: !!flags.otaPw, mqPwSet: true, servicePinSet: true, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
+    const out = Object.assign({}, cfg, {mqtt_topic_base: cfg.mqtt_base + '/' + cfg.slug, otaPasswordSet: !!flags.otaPw, mqPwSet: true, servicePinSet: true, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
     return json(out);
   }
   if (p === '/api/settings') {

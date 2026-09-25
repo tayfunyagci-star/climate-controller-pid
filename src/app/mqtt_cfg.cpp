@@ -1,6 +1,7 @@
 #include "mqtt_cfg.h"
 #include <Arduino.h>
 #include <Preferences.h>
+#include <esp_mac.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <cctype>
@@ -13,6 +14,7 @@ namespace {
 SemaphoreHandle_t g_mtx = nullptr;
 Settings g_s;
 bool g_pass = false;
+uint32_t g_gen = 1;
 bool g_has_core[kCoreKeyCount] = {};
 float g_core[kCoreKeyCount] = {};            // kayıtlı çekirdek değerleri (sayısal; bool 0/1)
 
@@ -73,6 +75,28 @@ void overlay(cc::Config& c) {
 
 Settings settings() { Lock l; return g_s; }
 bool passSet() { Lock l; return g_pass; }
+uint32_t generation() { Lock l; return g_gen; }
+
+bool password(char* out, size_t cap) {
+  out[0] = 0;
+  Preferences p;
+  if (!p.begin("mqtt", true)) return false;
+  if (p.isKey("pass")) p.getString("pass", out, cap);
+  p.end();
+  return out[0] != 0;
+}
+
+void slug(char out[24]) {
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  snprintf(out, 24, "kulube_iklim_%02x%02x%02x", mac[3], mac[4], mac[5]);
+}
+
+void devName(char out[32]) {
+  uint8_t mac[6] = {};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  snprintf(out, 32, "Kulübe İklim %02x%02x%02x", mac[3], mac[4], mac[5]);
+}
 
 bool isStringKey(const char* k) {
   return !strcmp(k, "mqtt_host") || !strcmp(k, "mqtt_port") || !strcmp(k, "mqtt_user") || !strcmp(k, "mqtt_password") ||
@@ -116,6 +140,7 @@ bool apply(const Settings& s, const char* pass, const cc::Config& core, const ch
   g_s = s;
   if (pass) g_pass = pass[0] != 0;
   for (size_t i = 0; i < kCoreKeyCount; ++i) { g_core[i] = vals[i]; g_has_core[i] = true; }
+  ++g_gen;
   return true;
 }
 

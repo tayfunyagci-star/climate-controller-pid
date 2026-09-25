@@ -6,6 +6,7 @@
 #include "app/console.h"
 #include "app/hal_outputs.h"
 #include "app/mqtt_cfg.h"
+#include "app/mqtt_client.h"
 #include "app/net_manager.h"
 #include "app/tasks.h"
 #include "app/core_api.h"
@@ -39,6 +40,7 @@ void setup() {
   g_core.begin(cfg, boot);            // doğrulanmamış config reddedilir → güvenli varsayılan + CONFIG_ERROR
   app::tasksStart(g_core);            // kontrol ağdan bağımsız başlar
   net::begin();                       // Wi-Fi + SNTP paralel (kontrol beklemez)
+  mq::begin();                        // MQTT (F5): kendi görevi; broker yoksa DISABLED
   app::consoleBegin(bs);
 }
 

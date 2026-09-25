@@ -52,9 +52,9 @@ flowchart LR
 | `homeassistant/<comp>/<SLUG>_<id>/config` | Cihaz → | Evet | 1 | Bağlantı, `homeassistant/status=online` (≥ 10 s aralık) | Discovery |
 | `homeassistant/status` | → Cihaz | — | 1 abone | — | Discovery tekrarı |
 
-**OPEN ISSUE — QoS:** PubSubClient yalnız QoS 0 yayınlar. Hedef QoS 1 için ESP-IDF `esp-mqtt` (Arduino-ESP32 çekirdeğinde mevcut; kendi görevinde çalışır, tampon ayarlanabilir) önerilir. Kütüphane seçimi implementasyon öncesi karardır; tasarım QoS 0 ile de doğru çalışır (retained snapshot + periyodik tam yayın).
+**Karar (F5, 25.09.2026) — istemci:** ESP-IDF `esp-mqtt` (Arduino-ESP32 2.0.17 çekirdeğinde; ek bağımlılık yok). QoS 1 yayın, olayda `retain` bayrağı, ayrı giriş/çıkış tamponu. esp-mqtt kendi ağ görevinde çalışır; `src/app/mqtt_client` içindeki `mqtt` görevi (çekirdek 0) istemcinin tek kullanıcısıdır — NetTask yerine ayrı görev, Wi-Fi/web döngüsü broker gecikmesinden etkilenmez. Otomatik yeniden bağlanma kapalı; üstel geri çekilme istemci yeniden kurularak yapılır.
 
-Tampon: keşif yükü ≈ 450–700 B, `B/state` ≈ 1.4 KB → **2048 B** (sözleşmedeki 1024 B bu cihaz için yetmez).
+Tampon: keşif yükü ≤ 632 B (ölçüldü, 89 kayıt), `B/state` kötü durumda ≈ 1.5 KB → **3072 B**. Web'e özgü ek alanlar (PID terimleri, eşikler) `B/state`'e girmez, yalnız `/api/data`'dadır (`state_json::writeWebExtras`).
 
 ## 4. Payload sözleşmeleri
 

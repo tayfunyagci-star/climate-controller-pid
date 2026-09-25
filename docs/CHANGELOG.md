@@ -345,3 +345,40 @@ Kullanıcı bildirimi: Ayarlar › MQTT kaydı “Bu ayar sonraki fazda (MQTT F5
 | Native + UI regresyon | Geçti |
 | Kartta MQTT kaydı + yeniden başlatma sonrası değerlerin korunması | **Yapılmadı** |
 
+## F5 — MQTT katmanı (25.09.2026)
+
+Kullanıcı isteği: MQTT katmanını ekle, eksik fazlara başla. Kapsam: [MQTT_INTEGRATION.md](MQTT_INTEGRATION.md), [ENTITY_MODEL.md](ENTITY_MODEL.md), `mqtt-studio-dugum` sözleşmesi.
+
+### Eklenenler
+
+- `lib/core/cc_mqtt_map` — **entity tablosu tek kaynak** (89 entity: 52 proses, 18 konfigürasyon, 19 tanı). `id` = state alanı = `/set` son parçası. number/select sınırları ve seçenekleri `cc_config` alan tablosundan okunur. Keşif yükü saf C++ ile üretilir (`~` kısayolu, kısa anahtarlar, `val_tpl` = `{{ value_json.<id> }}`, `o.name = esp-climate-node`, `alarm_ack` butonunda `json_attributes_template` + `ack_count`). Native `test_mqtt_map` (5 test).
+- `src/app/mqtt_client` — esp-mqtt istemcisi ve `mqtt` görevi:
+  - Kimlik: client ID = SLUG (`kulube_iklim_<mac3>`, sabit), `B = <kök>/<SLUG>`, `dev.name = "Kulübe İklim <mac3>"` (sabit), LWT `B/avail offline` retained QoS 1.
+  - Bağlanma sırası: abonelik (`B/+/set`, `homeassistant/status`) → keşif (2 kayıt / 20 ms) → `alarm/state` → `state` → `config/reported` → `diag/state` → `B/avail online` retained; `avail` 30 s'de bir tazelenir.
+  - Yayınlar: `B/state` retained QoS 1 — içerik değişiminde ≤ 1 s, ısıtırken `state_active_s`, boşta `state_idle_s`; `B/config/reported` özet değişince; `B/alarm/state` değişimde; `B/diag/state` `diag_interval_s`; `B/event` (QoS 0, kopukluk olayları replay edilmez); `B/ack` her komutta.
+  - Komutlar: `ClimateCore::command(id, payload, MQTT)` — web ile aynı doğrulama, uzak yazım politikası (`remote_config_enabled`, `pid_remote_tuning`, `remote_manual_allowed`), yerel kilit. Retained komut (`retain` bayrağı) ve abonelikten sonraki ilk 2 s yok sayılır. Kabul ya da ret sonrası güncel state hemen yayınlanır (Suite 8 s doğrulaması).
+  - `homeassistant/status = online` → keşif yeniden (≥ 10 s aralık). Keşif kapatılınca kayıtlar boş retained ile silinir.
+  - Kök topic değişimi = taşınma: eski adrese `offline`, eski retained kayıtlar ve keşif temizlenir, yeni adresle bağlanılır.
+  - Kopma: 1 → 2 → 4 … 60 s (+ %20 jitter), `mqtt_reconnects`; kimlik reddi `AUTH_FAIL`; `MQTT_OFFLINE` alarmı çekirdekte (broker tanımlı ama bağlı değil).
+- `src/app/state_json` — `/api/data` ve `B/state` aynı alan yazıcısını kullanır; `B/config/reported` (`config_hash`), `B/diag/state`.
+- UI: Ayarlar › MQTT'de canlı durum paneli (durum, ayrıntı, topic tabanı, yeniden bağlanma); kimlik reddinde genel uyarı. LED3 artık gerçek MQTT durumunu gösterir.
+- FW 0.3.0 (`src/app/version.h`).
+
+### Sapmalar
+
+1. İstemcinin tek kullanıcısı NetTask değil ayrı `mqtt` görevi (IMPLEMENTATION_PROMPT §3'ten sapma): broker gecikmesi web/Wi-Fi döngüsünü bekletmez; kural (tek sahip) korunur.
+2. Tampon 2048 değil 3072 B.
+3. Günlük geçmiş (`B/history/heat_minutes_daily`) yayınlanmıyor: 7 günlük pencere kalıcı sayaç deposu (F3) gerektirir.
+4. Servis zarfı (`B/service/cmd`) abone edilmiyor: servis jetonu F4'te.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 19 paket geçti (`test_mqtt_map` yeni) |
+| Keşif yükleri (host dökümü + Python `json`) | 89 kayıt geçerli JSON; `val_tpl` düz alan kuralı; en büyük 632 B; `dev.ids` tek; `bridge` yok |
+| Entity ↔ yayın kapsaması (statik) | Her entity'nin alanı ilgili topic yazıcısında var; `B/state` kötü durum ≈ 1.5 KB |
+| **Tam ESP32 imajı** (xtensa gcc 8.4, Arduino-ESP32 2.0.17 tarifleri, elle bağlama) | **ELF bağlandı**; uygulama kodunda uyarı yok; flash ≈ 1.18 MB / 1.83 MB bölüm, statik RAM ≈ 81 KB |
+| UI (Playwright + sahte cihaz) | MQTT durum paneli; önceki akışlar geçti |
+| Gerçek broker + Studio headless ölçümü, `broker_teshis.py` | **Yapılmadı** — sandbox'ta broker/Studio yok; faz çıkış kriteri kartta ölçülmeli |
+

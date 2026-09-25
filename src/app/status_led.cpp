@@ -5,6 +5,7 @@
 #include <freertos/semphr.h>
 #include <cstring>
 #include "hal_ws2812.h"
+#include "mqtt_client.h"
 #include "net_manager.h"
 #include "tasks.h"
 
@@ -49,7 +50,8 @@ void gather() {
   g_in.sta_ok = ns.sta_ok;
   g_in.mdns_enabled = true;                      // mDNS adı zorunlu; ayrı kapatma yok
   g_in.mdns_ok = ns.mdns_ok;
-  g_in.mqtt = cc::MqttLink::UNDEFINED;           // MQTT istemcisi F5'te
+  const mq::State ms = mq::status().state;
+  g_in.mqtt = ms == mq::State::Disabled ? cc::MqttLink::UNDEFINED : (ms == mq::State::Connected ? cc::MqttLink::UP : cc::MqttLink::DOWN);
 }
 
 }  // namespace

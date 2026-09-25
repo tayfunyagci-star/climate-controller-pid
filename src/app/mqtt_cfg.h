@@ -24,6 +24,10 @@ void load();                              // NVS → bellek (setup, çekirdekten
 void overlay(cc::Config& c);              // kayıtlı çekirdek alanlarını boot konfigürasyonuna uygula
 Settings settings();
 bool passSet();
+bool password(char* out, size_t cap);     // yalnız MQTT istemcisi (NVS'ten okur)
+uint32_t generation();                    // her başarılı apply() ile artar → istemci yeniden bağlanır
+void slug(char out[24]);                  // kulube_iklim_<MAC son 3 bayt> (MQTT_INTEGRATION §2)
+void devName(char out[32]);               // "Kulübe İklim <mac3>" — kurulumda sabit (dev.name)
 bool isStringKey(const char* key);        // mqtt_host, mqtt_port, mqtt_user, mqtt_password, mqtt_base
 bool isCoreKey(const char* key);
 

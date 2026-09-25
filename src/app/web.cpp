@@ -9,6 +9,9 @@
 #include "core_api.h"
 #include "cc_netfsm.h"
 #include "mqtt_cfg.h"
+#include "mqtt_client.h"
+#include "state_json.h"
+#include "version.h"
 #include "net_manager.h"
 #include "status_led.h"
 #include "tasks.h"
@@ -21,7 +24,6 @@ namespace {
 WebServer g_srv(80);
 cc::Event g_ev[200];   // olay kopyası (yalnız NetTask)
 
-const char* kFwVersion = "0.2.6";
 
 void headers(bool api) {
   g_srv.sendHeader("X-Content-Type-Options", "nosniff");
@@ -93,52 +95,27 @@ void fnum(JsonObject o, const char* k, float v, int dec = 2) {
   else { const float p = powf(10.f, (float)dec); o[k] = roundf(v * p) / p; }
 }
 
-void isoLocal(int64_t local_min, char out[24]) {
-  const int32_t day = (int32_t)(local_min >= 0 ? local_min / 1440 : (local_min - 1439) / 1440);
-  char d[11];
-  cc::formatDate(day, d);
-  const int32_t m = (int32_t)(local_min - (int64_t)day * 1440);
-  snprintf(out, 24, "%sT%02d:%02d", d, (int)((m / 60) % 24), (int)(m % 60));
-}
 
 // ---------------------------------------------------------------- /api/data
+// Proses alanları MQTT B/state ile aynı yazıcıdan (state_json); burada yalnız web'e özgü kimlik/ağ/tanı eklenir.
 void handleData() {
-  cc::CoreSnapshot s;
-  cc::Config c;
-  uint32_t sw[4] = {0, 0, 0, 0};
-  uint64_t on_ms[4] = {0, 0, 0, 0};
-  uint8_t vsrc = 0;
-  bool svc[4] = {false, false, false, false};
-  float err_rate = 0;
-  char prog[24] = "—";
-  if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul; yeniden deneyin."); return; }
-  s = app::core().snapshot();
-  c = app::core().config();
-  for (uint8_t k = 0; k < 4; ++k) {
-    sw[k] = app::core().guard().switchCount(k);
-    on_ms[k] = app::core().guard().onTimeMs(k);
-    svc[k] = app::core().serviceTestOn(k);
-  }
-  vsrc = app::core().vent().sources;
-  err_rate = app::core().t1().error_rate_10m;
-  if (s.program_index >= 0 && s.program_index < app::core().programCount())
-    strncpy(prog, app::core().programs()[s.program_index].name, sizeof prog - 1);
-  app::coreUnlock();
+  app::Frame f;
+  if (!app::capture(f, 100)) { replyMsg(503, "Çekirdek meşgul; yeniden deneyin."); return; }
   const net::Status ns = net::status();
   const net::NetSettings nc = net::settings();
   const app::TaskStats ts = app::stats();
+  const mq::Status ms = mq::status();
 
   JsonDocument doc;
   JsonObject d = doc.to<JsonObject>();
-  d["v"] = 1;
-  d["seq"] = s.seq;
-  if (ns.clock_valid) d["ts"] = (int64_t)time(nullptr); else d["ts"] = nullptr;
-  d["uptime"] = s.uptime_s;
+  app::writeProcess(d, f);
+  app::writeWebExtras(d, f);
+  if (!ns.clock_valid) d["ts"] = nullptr;
   d["device_name"] = nc.adn;
   d["ip"] = ns.ip;
   d["mdns"] = nc.mdns;
   d["client_ip"] = g_srv.client().remoteIP().toString();
-  d["fw_version"] = kFwVersion;
+  d["fw_version"] = app::kFwVersion;
   d["fw_build"] = ui::kUiBuild;
   d["ap_mode"] = ns.ap_mode;
   d["ap_name"] = ns.ap_name;
@@ -147,7 +124,9 @@ void handleData() {
   d["net_note"] = ns.note;
   d["wifi_ok"] = ns.sta_ok;
   if (ns.sta_ok) d["wifi_rssi"] = ns.rssi; else d["wifi_rssi"] = nullptr;
-  d["mqtt_status"] = "DISABLED";   // F5
+  d["mqtt_status"] = mq::stateName(ms.state);
+  d["mqtt_reconnects"] = ms.reconnects;
+  d["mqtt_note"] = ms.note;
   {
     uint8_t ls[cc::kLedCount];
     leds::states(ls);
@@ -159,89 +138,16 @@ void handleData() {
   d["password_set"] = false;       // web parolası F4
   d["ota_password_set"] = net::otaPasswordSet();   // false: OTA parolasız açık → UI kalıcı uyarı
   d["ota_ready"] = ns.ota_ready;
-  fnum(d, "temperature", s.temperature, 1);
-  fnum(d, "humidity", s.humidity, 1);
-  d["temperature_quality"] = cc::name(s.temperature_quality);
-  d["humidity_quality"] = cc::name(s.humidity_quality);
-  d["t2"] = nullptr;
-  d["t2_quality"] = cc::name(s.t2_quality);
-  d["sensor_ok"] = onoff(s.sensor_ok);
-  d["sensor_age_s"] = s.sensor_age_s;
-  fnum(d, "temperature_setpoint", s.temperature_setpoint, 1);
-  fnum(d, "setpoint_effective", s.setpoint_effective);
-  d["setpoint_source"] = cc::name(s.setpoint_source);
-  fnum(d, "setpoint_night", c.setpoint_night, 1);
-  fnum(d, "setpoint_away", c.setpoint_away, 1);
-  fnum(d, "setpoint_frost", c.setpoint_frost, 1);
-  fnum(d, "setpoint_boost", c.setpoint_boost, 1);
-  d["boost_minutes"] = c.boost_minutes;
-  fnum(d, "frost_guard_temperature", c.frost_guard_temperature, 1);
-  d["profile"] = cc::name(s.profile);
-  d["profile_active"] = cc::name(s.profile_active);
-  d["sched_night"] = onoff(s.sched_night);
-  d["sched_away"] = onoff(s.sched_away);
-  d["boost"] = onoff(s.boost);
-  d["boost_remaining_min"] = s.boost_remaining_min;
-  d["operating_mode"] = cc::name(s.operating_mode);
-  d["controller_enable"] = onoff(s.controller_enable);
-  d["controller_state"] = cc::name(s.controller_state);
-  d["heating_phase"] = cc::name(s.heating_phase);
-  d["ventilation_state"] = cc::name(s.ventilation_state);
-  d["heating_reason"] = cc::name(s.heating_reason);
-  d["failsafe_reason"] = cc::name(s.failsafe_reason);
-  fnum(d, "pid_output", s.pid_output, 1);
-  fnum(d, "heat_demand", s.heat_demand, 1);
-  fnum(d, "manual_heat_demand", s.manual_heat_demand, 0);
-  fnum(d, "pid_error", s.pid_error);
-  fnum(d, "pid_p", s.pid_p, 1);
-  fnum(d, "pid_i", s.pid_i, 1);
-  fnum(d, "pid_d", s.pid_d, 1);
-  d["pid_saturation"] = cc::name(s.pid_saturation);
-  d["anti_windup_active"] = onoff(s.anti_windup_active);
-  d["pid_tracking"] = onoff(s.pid_tracking);
-  fnum(d, "r1_duty", s.r1_duty, 1);
-  fnum(d, "r2_duty", s.r2_duty, 1);
-  d["power_stage"] = s.power_stage;
-  fnum(d, "stage2_on", c.stage2_on, 0);
-  fnum(d, "stage2_off", c.stage2_off, 0);
-  fnum(d, "temperature_rate", s.temperature_rate, 1);
   static const char* const outs[4] = {"r1", "r2", "heater_fan", "ventilation_fan"};
   char k[40];
   for (uint8_t i = 0; i < 4; ++i) {
-    snprintf(k, sizeof k, "%s_active", outs[i]); d[k] = onoff(s.active[i]);
-    snprintf(k, sizeof k, "%s_reason", outs[i]); d[k] = cc::name(s.reason[i]);
-    snprintf(k, sizeof k, "%s_switch_count", outs[i]); d[k] = sw[i];
-    snprintf(k, sizeof k, "%s_hours_total", outs[i]); d[k] = (float)(on_ms[i] / 36000ULL) / 100.0f;
-    snprintf(k, sizeof k, "svc_test_%s", outs[i]); d[k] = onoff(svc[i]);
+    snprintf(k, sizeof k, "%s_switch_count", outs[i]); d[k] = f.sw[i];
+    snprintf(k, sizeof k, "%s_hours_total", outs[i]); d[k] = (float)(f.on_ms[i] / 36000ULL) / 100.0f;
+    snprintf(k, sizeof k, "svc_test_%s", outs[i]); d[k] = onoff(f.svc[i]);
   }
-  d["heating_active"] = onoff(s.heating_active);
-  d["ventilation_active"] = onoff(s.ventilation_active);
-  d["heater_fan_manual"] = onoff(s.heater_fan_manual);
-  d["ventilation_fan_manual"] = onoff(s.ventilation_fan_manual);
-  d["post_cool_remaining_s"] = s.post_cool_remaining_s;
   JsonArray vs = d["vent_sources"].to<JsonArray>();
   static const char* const vn[5] = {"TEMP_HIGH", "HUMIDITY_HIGH", "MANUAL", "SCHEDULED", "OVERTEMP"};
-  for (uint8_t i = 0; i < 5; ++i) if (vsrc & (1u << i)) vs.add(vn[i]);
-  fnum(d, "ventilation_start_effective", s.ventilation_start_effective, 1);
-  fnum(d, "ventilation_start_temperature", c.ventilation_start_temperature, 1);
-  fnum(d, "ventilation_stop_temperature", c.ventilation_stop_temperature, 1);
-  fnum(d, "humidity_high_limit", c.humidity_high_limit, 0);
-  fnum(d, "humidity_hysteresis", c.humidity_hysteresis, 0);
-  d["humidity_vent_while_heating"] = c.humidity_vent_while_heating == cc::HumVentWhileHeating::INHIBIT ? "INHIBIT" : "ALLOW";
-  d["manual_vent_priority"] = c.manual_vent_priority == cc::ManualVentPriority::VENT_WINS ? "VENT_WINS" : "HEAT_WINS";
-  d["overtemperature"] = onoff(s.overtemperature);
-  d["alarm"] = onoff(s.alarm);
-  d["alarm_state"] = cc::name(s.alarm_state);
-  d["active_alarm_count"] = s.active_alarm_count;
-  d["unacked_alarm_count"] = s.unacked_alarm_count;
-  d["local_lock"] = onoff(s.local_lock);
-  d["last_command_source"] = cc::name(s.last_command_source);
-  d["ack_count"] = s.ack_count;
-  d["programs_enabled"] = onoff(s.programs_enabled);
-  d["program_active"] = prog;
-  if (s.program_index >= 0 && s.program_until >= 0) { char iso[24]; isoLocal(s.program_until, iso); d["program_until"] = iso; }
-  else d["program_until"] = "";
-  d["program_held"] = onoff(s.program_held);
+  for (uint8_t i = 0; i < 5; ++i) if (f.vsrc & (1u << i)) vs.add(vn[i]);
   d["free_heap"] = ESP.getFreeHeap();
   d["min_heap"] = ESP.getMinFreeHeap();
   d["control_loop_max_ms"] = (ts.max_us[2] + 999) / 1000;
@@ -259,7 +165,7 @@ void handleData() {
   d["ap_clients"] = ns.ap_clients;
   d["sta_ip"] = ns.sta_ip;
   d["static_ip"] = nc.st;
-  fnum(d, "sensor_error_rate_10m", err_rate, 0);
+  fnum(d, "sensor_error_rate_10m", f.err_rate, 0);
   d["sensor_model"] = "DHT22";
   replyJson(200, doc);
 }
@@ -342,11 +248,8 @@ void settingsGet() {
   d["dns2"] = n.d2;
   d["ntp_server"] = n.ntp;
   {
-    // MQTT SLUG varsayılanı (MQTT_INTEGRATION §2): kulube_iklim_ + MAC son 3 bayt; taşınma F5'te
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
     char slug[24];
-    snprintf(slug, sizeof slug, "kulube_iklim_%02x%02x%02x", mac[3], mac[4], mac[5]);
+    mqttcfg::slug(slug);   // MQTT_INTEGRATION §2: kulube_iklim_ + MAC son 3 bayt
     d["slug"] = slug;
   }
   {
@@ -368,6 +271,10 @@ void settingsGet() {
     d["mqtt_user"] = ms.user;
     d["mqtt_base"] = ms.base;
     d["mqPwSet"] = mqttcfg::passSet();
+    char sl[24], tb[128];
+    mqttcfg::slug(sl);
+    snprintf(tb, sizeof tb, "%s/%s", ms.base, sl);
+    d["mqtt_topic_base"] = tb;
   }
   d["ssid"] = ns.ssid;
   d["passSet"] = net::passSet();
@@ -375,7 +282,7 @@ void settingsGet() {
   d["apName"] = ns.ap_name;
   d["devName"] = n.adn;
   d["ip"] = ns.ip;
-  d["fwVersion"] = kFwVersion;
+  d["fwVersion"] = app::kFwVersion;
   d["fwBuild"] = ui::kUiBuild;
   replyJson(200, doc);
 }
@@ -504,7 +411,7 @@ void settingsPost() {
     if (anyLed && !leds::apply(lc, &err)) { replyMsg(507, err); return; }
     JsonDocument d;
     d["message"] = anyLed ? "LED ayarları kaydedildi"
-                   : anyMqtt ? "MQTT ayarları kaydedildi. MQTT bağlantısı sonraki sürümde (F5) etkinleşecek; şimdilik bağlantı kurulmaz."
+                   : anyMqtt ? "MQTT ayarları kaydedildi. Bağlantı yeni ayarlarla yeniden kuruluyor; sonuç MQTT durumunda görünür."
                              : "Kaydedildi";
     d["reconnect"] = false;
     d["net_try_base"] = ns.try_seq;
@@ -754,6 +661,8 @@ void handleNotFound() {
 }
 
 }  // namespace
+
+const char* uiBuild() { return ui::kUiBuild; }
 
 void begin() {
   for (size_t i = 0; i < ui::kAssetCount; ++i) {

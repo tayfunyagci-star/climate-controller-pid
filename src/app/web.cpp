@@ -8,6 +8,7 @@
 #include "boot_state.h"
 #include "core_api.h"
 #include "cc_netfsm.h"
+#include "mqtt_cfg.h"
 #include "net_manager.h"
 #include "status_led.h"
 #include "tasks.h"
@@ -20,7 +21,7 @@ namespace {
 WebServer g_srv(80);
 cc::Event g_ev[200];   // olay kopyası (yalnız NetTask)
 
-const char* kFwVersion = "0.2.5";
+const char* kFwVersion = "0.2.6";
 
 void headers(bool api) {
   g_srv.sendHeader("X-Content-Type-Options", "nosniff");
@@ -360,6 +361,14 @@ void settingsGet() {
       }
     d["ledOk"] = leds::driverOk();
   }
+  {
+    const mqttcfg::Settings ms = mqttcfg::settings();
+    d["mqtt_host"] = ms.host;
+    d["mqtt_port"] = ms.port;
+    d["mqtt_user"] = ms.user;
+    d["mqtt_base"] = ms.base;
+    d["mqPwSet"] = mqttcfg::passSet();
+  }
   d["ssid"] = ns.ssid;
   d["passSet"] = net::passSet();
   d["otaPasswordSet"] = net::otaPasswordSet();
@@ -371,6 +380,69 @@ void settingsGet() {
   replyJson(200, doc);
 }
 
+// MQTT bölümü: metin alanları mqtt_cfg (NVS "mqtt"), çekirdek alanları (yayın aralıkları, keşif, uzak yetkiler)
+// hem çekirdek konfigürasyonuna hem NVS'e. Aday bütünüyle doğrulanır; hata = hiçbir şey değişmez. Yanıt hata
+// durumunda gönderilmiş olur (false).
+bool mqttSection(JsonDocument& b) {
+  mqttcfg::Settings s = mqttcfg::settings();
+  auto str = [&](const char* key, char* dst, size_t cap) -> bool {
+    if (b[key].isNull()) return true;
+    if (!b[key].is<const char*>() || strlen(b[key].as<const char*>()) >= cap) { replyMsg(400, "Metin çok uzun veya geçersiz.", key); return false; }
+    strcpy(dst, b[key].as<const char*>());
+    return true;
+  };
+  if (!str("mqtt_host", s.host, sizeof s.host) || !str("mqtt_user", s.user, sizeof s.user) || !str("mqtt_base", s.base, sizeof s.base)) return false;
+  if (!b["mqtt_port"].isNull()) {
+    const float v = b["mqtt_port"].as<float>();
+    if (!b["mqtt_port"].is<float>() || v < 1 || v > 65535 || v != floorf(v)) { replyMsg(400, "Broker portu 1–65535 olmalı.", "mqtt_port"); return false; }
+    s.port = (uint16_t)v;
+  }
+  const char* pass = nullptr;
+  if (!b["mqtt_password"].isNull()) {
+    if (!b["mqtt_password"].is<const char*>()) { replyMsg(400, "Geçersiz parola.", "mqtt_password"); return false; }
+    pass = b["mqtt_password"].as<const char*>();
+  }
+  const char* err = nullptr;
+  const char* field = nullptr;
+  if (!mqttcfg::validate(s, pass, &err, &field)) { replyMsg(400, err, field); return false; }
+  cc::Config cur, cand;
+  if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul."); return false; }
+  cur = app::core().config();
+  app::coreUnlock();
+  cand = cur;
+  for (const char* k : mqttcfg::kCoreKeys) {
+    const JsonVariantConst v = b[k];
+    if (v.isNull()) continue;
+    char payload[24];
+    if (v.is<bool>()) strcpy(payload, v.as<bool>() ? "ON" : "OFF");
+    else if (v.is<float>()) snprintf(payload, sizeof payload, "%g", v.as<float>());
+    else { replyMsg(400, "Geçersiz değer.", k); return false; }
+    const cc::SetResult r = cc::setField(cand, k, payload, cc::CmdSource::LOCAL_WEB, cand);
+    if (r.result != cc::CmdResult::ACCEPTED) {
+      char msg[96];
+      snprintf(msg, sizeof msg, "Değer kabul edilmedi (%s).", cc::name(r.code));
+      replyMsg(400, msg, k);
+      return false;
+    }
+  }
+  // Anonim broker'da MQTT'den konfigürasyon yazımı açılamaz (SECURITY)
+  if (cand.remote_config_enabled && !s.user[0]) { replyMsg(400, "Anonim broker’da (kullanıcı adı boş) MQTT’den konfigürasyon yazımı açılamaz.", "remote_config_enabled"); return false; }
+  if (!mqttcfg::apply(s, pass, cand, &err, &field)) { replyMsg(field ? 400 : 507, err, field); return false; }
+  bool changed = false;
+  for (const char* k : mqttcfg::kCoreKeys) {
+    const cc::FieldInfo* f = cc::findField(k);
+    if (f && cc::fieldValue(cand, *f) != cc::fieldValue(cur, *f)) changed = true;
+  }
+  if (changed) {
+    cc::CmdReply r;
+    if (!app::coreLock(200)) { replyMsg(503, "Kaydedildi ancak çekirdek meşgul; yeniden başlatmada uygulanacak."); return false; }
+    r = app::core().applyConfig(cand, cc::CmdSource::LOCAL_WEB);
+    app::coreUnlock();
+    if (r.result != cc::CmdResult::ACCEPTED) { replyMsg(409, "Kaydedildi ancak çalışan konfigürasyona uygulanamadı; yeniden başlatmada uygulanacak."); return false; }
+  }
+  return true;
+}
+
 // Ayarlar bölüm bölüm kaydedilir (UI her sekmeyi ayrı gönderir): gövde yalnız o bölümün alanlarını taşır,
 // gövdede olmayan alan korunur. Ağ + kablosuz kimlik ve LED F2'de kalıcıdır; diğer bölümler kalıcı depo (F3)
 // gelene kadar değişen değerde reddedilir. Bir bölümün reddi başka bölümün kaydını engellemez.
@@ -380,12 +452,13 @@ void settingsPost() {
   if (!body(b)) return;
   static const char* const netKeys[] = {"adN", "mdns", "staticEnabled", "staticIP", "gateway", "subnet", "dns1",
                                         "dns2", "ntp_server", "ssid", "pass", "clearWifiPassword"};
-  bool anyNet = false, anyLed = false;
+  bool anyNet = false, anyLed = false, anyMqtt = false;
   cc::LedConfig lc = leds::config();
   for (JsonPair kv : b.as<JsonObject>()) {
     bool known = false;
     for (const char* k : netKeys) if (!strcmp(kv.key().c_str(), k)) { known = true; break; }
     if (known) { anyNet = true; continue; }
+    if (mqttcfg::isStringKey(kv.key().c_str()) || mqttcfg::isCoreKey(kv.key().c_str())) { anyMqtt = true; continue; }
     uint8_t li = 0, ls = 0;
     if (!strcmp(kv.key().c_str(), "ledB")) {
       const float v = kv.value().as<float>();
@@ -409,7 +482,7 @@ void settingsPost() {
       const bool empty = v.isNull() || (v.is<const char*>() && !*v.as<const char*>()) || (v.is<bool>() && !v.as<bool>()) ||
                          (v.is<float>() && v.as<float>() == 0.0f);
       if (empty) continue;
-      replyMsg(409, "Bu ayar sonraki fazda (MQTT F5, erişim F4) etkinleşecek; şimdilik kaydedilemez.", kv.key().c_str());
+      replyMsg(409, "Bu ayar sonraki fazda (erişim F4) etkinleşecek; şimdilik kaydedilemez.", kv.key().c_str());
       return;
     }
     // Değişmeyen değerler (form tüm alanları gönderir) kabul; değişen değer F3'e kadar kaydedilemez
@@ -422,14 +495,17 @@ void settingsPost() {
     if (f->kind == cc::FieldKind::ENUM) same = kv.value().is<const char*>() && (uint8_t)cur < f->enumCount && !strcmp(kv.value().as<const char*>(), f->enumNames[(uint8_t)cur]);
     else if (f->kind == cc::FieldKind::BOOL) same = kv.value().as<bool>() == (cur != 0);
     else same = fabsf(kv.value().as<float>() - cur) < 1e-4f;
-    if (!same) { replyMsg(409, "Bu ayar kalıcı ayar deposu (F3) eklenince kaydedilebilecek. Şimdilik Ağ, LED ve Wi-Fi ayarları kaydedilir.", kv.key().c_str()); return; }
+    if (!same) { replyMsg(409, "Bu ayar kalıcı ayar deposu (F3) eklenince kaydedilebilecek. Şimdilik Ağ, MQTT, LED ve Wi-Fi ayarları kaydedilir.", kv.key().c_str()); return; }
   }
+  if (anyMqtt && !mqttSection(b)) return;
   const net::Status ns = net::status();   // net_try tabanı: UI bu değerden büyük denemenin sonucunu bekler
   if (!anyNet) {
     const char* err = nullptr;
     if (anyLed && !leds::apply(lc, &err)) { replyMsg(507, err); return; }
     JsonDocument d;
-    d["message"] = anyLed ? "LED ayarları kaydedildi" : "Kaydedildi";
+    d["message"] = anyLed ? "LED ayarları kaydedildi"
+                   : anyMqtt ? "MQTT ayarları kaydedildi. MQTT bağlantısı sonraki sürümde (F5) etkinleşecek; şimdilik bağlantı kurulmaz."
+                             : "Kaydedildi";
     d["reconnect"] = false;
     d["net_try_base"] = ns.try_seq;
     replyJson(200, d);

@@ -375,6 +375,8 @@ builders.settings = sec => {
       if (Object.values(fields).some(f => f.sec === id && !f.o.ro)) p.append(savebar(id, label));
     });
     // Güvenlik bölümü notu
+    $('#panel-mqtt').prepend(h('div', {class: 'notice info'}, icon('info'),
+      h('span', {text: 'Ayarlar cihazda kalıcı olarak saklanır. MQTT bağlantısı (yayın, keşif, uzak komut) sonraki firmware sürümünde etkinleşecek; şimdilik broker’a bağlanılmaz.'})));
     $('#panel-safety').prepend(h('div', {class: 'notice warn'}, icon('warn'),
       h('span', {text: 'Güvenlik limitleri yalnız bu yerel arayüzden ve yönetici rolüyle değiştirilir; MQTT’den yazılamaz. Yazılım korumaları termik kesici, sigorta ve RCD’nin yerine geçmez.'})));
     renderAccessExtras($('#panel-access'), d);

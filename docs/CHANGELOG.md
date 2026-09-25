@@ -326,3 +326,22 @@ Kullanıcı kararı: parolasız OTA çalışsın; parola Ayarlar üzerinden tan�
 | UI (Playwright + sahte cihaz) | Parolasız uyarı (üst + panel), kısa parola reddi, kaydet → uyarı kalkar, kaldır (onay) → uyarı döner; F2.4 akışları tekrar geçti |
 | Kartta parolasız/parolalı espota yüklemesi | **Yapılmadı** |
 
+## F2.6 — MQTT ayarlarının kalıcı kaydı (25.09.2026)
+
+Kullanıcı bildirimi: Ayarlar › MQTT kaydı “Bu ayar sonraki fazda (MQTT F5, erişim F4) etkinleşecek” ile reddediliyordu. Neden: broker/kullanıcı/parola/kök topic alanlarının firmware'de karşılığı yoktu; yayın aralıkları, keşif ve uzak yetki alanları ise kalıcı çekirdek deposu (F3) gelmeden değiştirilemiyordu.
+
+### Değişenler
+
+- `mqtt_cfg` (yeni): NVS `mqtt` alanı — `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password` (yalnız yazılır, GET'te `mqPwSet`), `mqtt_base` ve bölümün çekirdek alanları (`state_active_s`, `state_idle_s`, `diag_interval_s`, `discovery_enabled`, `history_discovery_enabled`, `remote_config_enabled`, `pid_remote_tuning`, `remote_manual_allowed`, `service_channel_enabled`). Boot'ta çekirdek alanları konfigürasyona uygulanır (`main.cpp`).
+- `web`: MQTT bölümü aday olarak bütünüyle doğrulanır (çekirdek alanları `setField` aralık/adım/ilişki kurallarıyla; anonim broker'da `remote_config_enabled` reddi), NVS'e yazılır, değişen çekirdek alanları `applyConfig` ile hemen uygulanır. Yanıt: “MQTT ayarları kaydedildi. MQTT bağlantısı sonraki sürümde (F5) etkinleşecek; şimdilik bağlantı kurulmaz.”
+- UI: MQTT sekmesinin başında aynı bilgi notu.
+- **Sınır:** MQTT istemcisi (bağlantı, yayın, keşif, komut) hâlâ F5; `mqtt_status` DISABLED, LED3 “Tanımsız”.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| ESP32 derleme (xtensa gcc 8.4, Arduino-ESP32 2.0.17 başlıkları) | `mqtt_cfg`, `web`, `main` uyarısız; link yapılmadı |
+| Native + UI regresyon | Geçti |
+| Kartta MQTT kaydı + yeniden başlatma sonrası değerlerin korunması | **Yapılmadı** |
+

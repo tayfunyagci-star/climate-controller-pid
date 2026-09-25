@@ -5,6 +5,7 @@
 #include "app/boot_state.h"
 #include "app/console.h"
 #include "app/hal_outputs.h"
+#include "app/mqtt_cfg.h"
 #include "app/net_manager.h"
 #include "app/tasks.h"
 #include "app/core_api.h"
@@ -32,7 +33,10 @@ void setup() {
   const cc::BootInfo boot = app::readBoot(bs);
   Serial.printf("\nKulube Iklim Kontrolcusu F2 | reset=%s hatali_boot=%u heater_was_on=%d\n", bs.reset_reason,
                 (unsigned)boot.fault_boots_in_window, (int)boot.heater_was_on);
-  g_core.begin(f2Config(), boot);     // doğrulanmamış config reddedilir → güvenli varsayılan + CONFIG_ERROR
+  cc::Config cfg = f2Config();
+  mqttcfg::load();                    // MQTT bölümü (NVS "mqtt"): yayın aralıkları, keşif, uzak yetkiler
+  mqttcfg::overlay(cfg);
+  g_core.begin(cfg, boot);            // doğrulanmamış config reddedilir → güvenli varsayılan + CONFIG_ERROR
   app::tasksStart(g_core);            // kontrol ağdan bağımsız başlar
   net::begin();                       // Wi-Fi + SNTP paralel (kontrol beklemez)
   app::consoleBegin(bs);

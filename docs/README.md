@@ -28,6 +28,7 @@ Cihaz; iki AC rezistans (R1, R2), rezistanslara ait bir **Heater Fan**, kulübe 
 | [SENSOR_ARCHITECTURE.md](SENSOR_ARCHITECTURE.md) | ClimateSensor arayüzü, kalite modeli, T2 hazırlığı |
 | [MQTT_INTEGRATION.md](MQTT_INTEGRATION.md) | Topic, QoS/retain, LWT, discovery, komut/ACK, Programs, Suite uyumsuzlukları |
 | [ENTITY_MODEL.md](ENTITY_MODEL.md) | Entity kataloğu, taksonomi ve Studio widget eşlemesi, SCADA kartı |
+| [hardware/CC-SCH-01.html](hardware/CC-SCH-01.html) | Devre şeması (SELV kartı + 230 V tarafı), pin tablosu, malzeme listesi |
 | [HIL.md](HIL.md) | F2 donanımlı test prosedürü (H1–H15), düzenek ve bilinen sınırlar |
 | [WEB_SCADA_UI.md](WEB_SCADA_UI.md) | Gömülü web HMI: sayfalar, wireframe, durum gösterimi, trend, erişilebilirlik |
 | [PROGRAMS.md](PROGRAMS.md) | Yerel program modülü: haftalık / tarih aralığı / tek sefer, öncelik, REST, MQTT, kalıcılık ([ADR-009](ADR/ADR-009-local-programs.md)) |

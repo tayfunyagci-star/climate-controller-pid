@@ -94,7 +94,7 @@ Remote writable olan alanlar number/select/switch olarak yayınlanır; diğerler
 | Profil | `profile`, `sched_*`, `boost` | `profile_active` | `setpoint_source` |
 | Isı talebi | `manual_heat_demand` (MANUAL) | `heat_demand` | `heating_reason` |
 
-**Reason sözlüğü:** `NONE`, `HEATER_INTERLOCK`, `POST_COOL`, `PREPURGE`, `FAN_PRESTART`, `BOOT_POST_COOL`, `SAFETY_LOCKOUT`, `OVERTEMPERATURE`, `OVERTEMPERATURE_LOCKOUT`, `SENSOR_FAULT`, `ANTIFREEZE_INHIBIT`, `HEATING_PRIORITY`, `VENT_PRIORITY`, `MIN_ON_TIME`, `MIN_OFF_TIME`, `CHANGEOVER_DELAY`, `LOCAL_LOCK`, `SERVICE_ONLY`, `SERVICE_TEST`, `OTA`, `CONTROLLER_DISABLED`, `AUTO_DEMAND` (istek OFF ama otomatik kural ON). Sözlük kapalıdır; yeni kod firmware sürüm notunda ilan edilir.
+**Reason sözlüğü:** `NONE`, `HEATER_INTERLOCK`, `POST_COOL`, `PREPURGE`, `FAN_PRESTART`, `BOOT_POST_COOL`, `SAFETY_LOCKOUT`, `OVERTEMPERATURE`, `OVERTEMPERATURE_LOCKOUT`, `SENSOR_FAULT`, `ANTIFREEZE_INHIBIT`, `HEATING_PRIORITY`, `VENT_PRIORITY`, `MIN_ON_TIME`, `MIN_OFF_TIME`, `CHANGEOVER_DELAY`, `LOCAL_LOCK`, `SERVICE_ONLY`, `SERVICE_TEST`, `OTA`, `CONTROLLER_DISABLED`, `AUTO_DEMAND` (istek OFF ama otomatik kural ON), `MODE_OFF` (OFF modunda manuel havalandırma isteği engellendi; F1, 25.09.2026). Sözlük kapalıdır; yeni kod firmware sürüm notunda ilan edilir.
 
 ## 6. Studio widget eşlemesi
 

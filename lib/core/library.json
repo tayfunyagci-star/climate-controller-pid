@@ -1,0 +1,8 @@
+{
+  "name": "climate-core",
+  "version": "0.1.0",
+  "description": "Kulübe İklim Kontrolörü saf proses çekirdeği (platform başlığı içermez)",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": { "flags": "-std=gnu++17" }
+}

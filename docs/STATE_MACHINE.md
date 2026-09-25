@@ -105,6 +105,7 @@ Vent `min_on` / `min_off`: 60 s / 60 s (fan motoru ve röle koruması). `manual_
 | `INTERNAL_FAULT` | Görev heartbeat kaybı, iç tutarsızlık | **Kilitli** (reboot ile) | Manuel izinli | Reboot + self-test |
 | `HEATER_FAN_FAULT` | (T2/geri bildirim varsa) fan hatası | **Kilitli** | Normal | Reset |
 | `OUTPUT_FAULT` | (geri bildirim varsa) çıkış takılı | **Kilitli** | Normal | Reset |
+| `TEMP_RISE` | S9 kritik: R ON iken T1 artışı > `max_rise_c_per_10min` (F1, 25.09.2026) | **Kilitli** | Normal | Reset (artış sınır altında) |
 
 Ayrıntılı gerekçe: [SAFETY_DESIGN.md](SAFETY_DESIGN.md).
 

@@ -38,7 +38,7 @@ flowchart TB
 | S4 | Sensör bayat | Son GOOD örnek yaşı > `sensor_stale_s` (10 s) | R OFF | Oto | `SENSOR_STALE` CRITICAL |
 | S5 | Aralıklı sensör hatası | Son 10 dk'da hata oranı > 20 % | Kontrol sürer | Hayır | `SENSOR_FAULT` WARNING (`intermittent`) |
 | S6 | Heater Fan arızası | T2 varsa: HF ON + R ON iken T2 yükselişi > `hf_fault_rise` (15 °C/dk) veya fan geri bildirimi FAULT | R OFF | Evet | `HEATER_FAN_FAULT` CRITICAL |
-| S7 | Aşırı ısıtma süresi | Sürekli `heating_active` > `max_continuous_heating_min` (240 dk) | R OFF | Evet | `HEATING_TIMEOUT` CRITICAL |
+| S7 | Aşırı ısıtma süresi | Talep etkin üst sınırda (doyumda) kesintisiz > `max_continuous_heating_min` (240 dk) — onaylı yorum 25.09.2026 | R OFF | Evet | `HEATING_TIMEOUT` CRITICAL |
 | S8 | Isıtmaya rağmen artış yok | HPM §6 | Uyarı | Hayır | `HEATING_PERFORMANCE_LOW` WARNING |
 | S9 | Beklenmeyen sıcaklık artışı | R OFF iken T1 artışı > `unexpected_rise_c_per_10min` (1.5 °C) veya R ON iken > `max_rise_c_per_10min` (5 °C) | R OFF ikinci durumda | İkinci durumda evet | `UNEXPECTED_TEMPERATURE_RISE` WARNING / CRITICAL |
 | S10 | Çıkış takılı | Geri bildirim varsa: komut ≠ geri bildirim > 5 s; yoksa dolaylı: R OFF iken S9 | ARM=0 | Evet | `OUTPUT_FAULT` CRITICAL |

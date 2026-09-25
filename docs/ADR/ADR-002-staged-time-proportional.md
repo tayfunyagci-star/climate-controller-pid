@@ -16,3 +16,6 @@ Anlık güç ve flicker tek rezistans kadar; çözünürlük pencere/min darbe i
 
 ## Sonuçlar
 Histerezis bandında ±5 % güç sapması (PID telafi eder). Farklı güçlü rezistanslar için oranlı eşleme gerekir. Faz açısı kontrolü kapsam dışı.
+
+## Uygulama notu (F1, 25.09.2026)
+`RELAY` profili ayrı bir "sabit kademe" algoritması kullanmaz; aynı kademeli zaman-oransal algoritma uzun pencere (≥ 300 s) ve min darbe (min ON/OFF) ile çalışır. Kademe 1'de lider, kademe 2'de takipçi modüle edilir; min darbe altındaki ON/OFF parçaları üretilmez. Ölçülen sonuç (native test): ≤ 6 anahtarlama/sa/kanal. Takipçinin penceresi, lider modüle ediliyorsa yarım pencere kaydırılır; iki kanal aynı tikte devreye girmez.

@@ -78,10 +78,10 @@
 
 | # | Madde | Sahip | Kodlamadan önce | Durum |
 |---|---|---|---|---|
-| 1 ★ | Bu tasarım paketinin kullanıcı tarafından onayı (özellikle ADR-001…008) | Kullanıcı | Zorunlu | ☐ |
-| 2 ★ | Profil çözüm önceliği ve Programs yaklaşımı (ADR-005) onayı | Kullanıcı | Zorunlu | ☐ |
-| 3 ★ | Havalandırma koordinasyon varsayılanları (INHIBIT, VENT_WINS) onayı | Kullanıcı | Zorunlu | ☐ |
-| 4 ★ | Başlangıç limitleri (40 °C, 240 dk, 10 s stale, 4 °C frost) onayı | Kullanıcı | Zorunlu | ☐ |
+| 1 ★ | Bu tasarım paketinin kullanıcı tarafından onayı (özellikle ADR-001…008) | Kullanıcı | Zorunlu | ☑ 25.09.2026 |
+| 2 ★ | Profil çözüm önceliği ve Programs yaklaşımı (ADR-005) onayı | Kullanıcı | Zorunlu | ☑ 25.09.2026 |
+| 3 ★ | Havalandırma koordinasyon varsayılanları (INHIBIT, VENT_WINS) onayı | Kullanıcı | Zorunlu | ☑ 25.09.2026 |
+| 4 ★ | Başlangıç limitleri (40 °C, 240 dk, 10 s stale, 4 °C frost) onayı | Kullanıcı | Zorunlu | ☑ 25.09.2026 |
 | 5 | Sensör modeli seçildi (OI-H1) ve T2 kararı (OI-H2) | Kullanıcı | Zorunlu | ☐ |
 | 6 | R ve fan sürücü tipi, anma değerleri (OI-H4, OI-H5) | Elektrik tasarımı | Zorunlu | ☐ |
 | 7 | Rezistans güçleri (OI-H3) | Kullanıcı | Zorunlu | ☐ |
@@ -89,7 +89,7 @@
 | 9 | `HEATER_ARM` devresi kararı (OI-H6) | Donanım | Zorunlu | ☐ |
 | 10 | Bağımsız termik kesici, sigorta/MCB, RCD, PE, izolasyon tasarımı (SAFETY_DESIGN §5) | Elektrikçi | Zorunlu (enerjilendirmeden önce) | ☐ |
 | 11 | Framework ve MQTT kütüphanesi (OI-S1, OI-S2) | Geliştirici | Zorunlu | ☐ |
-| 12 ★ | Native test altyapısı (PlatformIO `native` ortamı) | Geliştirici | Zorunlu | ☐ |
+| 12 ★ | Native test altyapısı (PlatformIO `native` ortamı) | Geliştirici | Zorunlu | ◐ 25.09.2026 — `[env:native]` + 13 Unity paketi eklendi; `pio test -e native` kullanıcı makinesinde doğrulanacak |
 | 13 | Flash bölüm tablosu (OTA×2, LittleFS, NVS, coredump payı) | Geliştirici | Zorunlu | ☐ |
 | 14 | Suite test ortamı: broker, Studio, `broker_teshis.py` erişimi | Kullanıcı | Faz 5 öncesi | ☐ |
 | 15 | Web UI font/ikon varlıkları (IBM Plex WOFF2 + OFL) | Geliştirici | Faz 4 öncesi | ☐ |
@@ -100,3 +100,11 @@
 ## 5. Gelecek geliştirmeler (özet)
 
 T2 zorunlu hâle getirme, akım/RPM geri bildirimi, dış sıcaklık ve PID ileri besleme, otomatik PID ayarı, yerel haftalık program, WebSocket, MQTT TLS, imzalı OTA, core dump, HMAC denetim kaydı, çoklu bölge, soğutma/ısı pompası, nemlendirme, CO₂/VOC havalandırma — bkz. [EXPANSION_ROADMAP.md](EXPANSION_ROADMAP.md).
+
+## 5. Karar günlüğü (implementasyon)
+
+| Tarih | Karar | Not |
+|---|---|---|
+| 25.09.2026 | ★ 1, 2, 3, 4 onaylandı; F1 başlatıldı | Kullanıcı onayı ("Devam") |
+| 25.09.2026 | F1 çekirdek + native testler tamamlandı | Ayrıntı ve sapmalar: [CHANGELOG.md](CHANGELOG.md) |
+| 25.09.2026 | S7 yorumu onaylandı: `max_continuous_heating_min` sayacı yalnız talep doyumdayken birikir | CHANGELOG F1 madde 1; SAFETY_DESIGN §3 S7 notu |

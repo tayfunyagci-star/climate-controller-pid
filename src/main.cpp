@@ -1,18 +1,16 @@
+// Kulübe İklim Kontrolörü — ESP32-S3
+// F1: yalnız hedef derleme doğrulaması. Çekirdek (lib/core) hedefte derlenir; GPIO sürülmez,
+// görev oluşturulmaz, çıkışlar donanım pull-down'larıyla güvenli kalır. HAL + FreeRTOS görevleri F2'dedir.
 #include <Arduino.h>
+#include "cc_core.h"
 
-// put function declarations here:
-int myFunction(int, int);
+static cc::ClimateCore g_core;  // F2'de ControlTask/OutputTask/SafetyTask'a dağıtılacak
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(115200);
+  Serial.println(F("climate-core F1: derleme dogrulamasi (cikis surulmez)"));
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-}
-
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+  vTaskDelay(pdMS_TO_TICKS(1000));  // bloklamayan RTOS beklemesi; delay() kullanılmaz
 }

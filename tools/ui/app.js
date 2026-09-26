@@ -192,7 +192,8 @@ function confirmDlg(title, body, okText, danger) {
   else b.append(body);
   const ok = $('#dlg-ok');
   ok.textContent = okText || 'Onayla';
-  ok.className = danger ? 'danger' : 'primary';
+  ok.className = danger === 'warn' ? 'warn' : danger ? 'danger' : 'primary';   // onay düğmesi riskin sınıfını alır
+  ok.disabled = false;
   dlgTrigger = document.activeElement;
   return new Promise(res => {
     dlgResolve = res;
@@ -1004,7 +1005,7 @@ async function resetWifiFlow(btn, out) {
     h('p', {text: 'Diğer cihaz ayarları korunacak. Isıtma kontrolü ve güvenlik işlevleri çalışmaya devam eder.'}),
     h('dl', {class: 'kv'}, h('dt', {text: 'Kurulum ağı'}), h('dd', {text: apName(d)}), h('dt', {text: 'Parola'}), h('dd', {text: 'Cihaz etiketinde'}),
       h('dt', {text: 'Kurulum adresi'}), h('dd', {text: apUrl(d)})));
-  if (!(await confirmDlg('Wi-Fi bilgilerini sil', body, 'Wi-Fi bilgilerini sil', true))) return;
+  if (!(await confirmDlg('Wi-Fi bilgilerini sil', body, 'Wi-Fi bilgilerini sil', 'warn'))) return;
   btn.setAttribute('aria-busy', 'true');
   NT = {ctx: 'reset', ssid: '', t0: Date.now(), sentAt: Date.now(), base: null, stage: 'saved'};
   let msg;
@@ -2191,7 +2192,7 @@ const DEF = {
       ['restart_storm_window_min', 'Aşırı yeniden başlatma penceresi (dk)', 'number', {min: 10, max: 120}]]]],
   led: [
     ['LED parlaklığı', [
-      ['ledB', 'Parlaklık (%)', 'range', {min: 0, max: 100, step: 5, hint: 'Bütün şerit için. 0: LED’ler sönük. Arayüz teması fiziksel LED rengini değiştirmez.'}]]]],
+      ['ledB', 'Parlaklık (%)', 'range', {min: 0, max: 100, step: 1, hint: 'Bütün şerit için. 0: LED’ler sönük. Arayüz teması fiziksel LED rengini değiştirmez.'}]]]],
   access: [
     ['Erişim', [
       ['user', 'Web kullanıcı adı', 'text', {req: 1, ml: 32}],
@@ -2266,7 +2267,7 @@ builders.settings = sec => {
     const wrap = type === 'checkbox'
       ? h('div', {class: 'field full', 'data-name': name}, h('div', {class: 'field toggle'}, input, h('label', {for: id, text: label})), hint)
       : type === 'range'
-        ? h('div', {class: 'field', 'data-name': name}, h('label', {for: id, text: label}), h('div', {class: 'range-row'}, input, out), hint)
+        ? h('div', {class: 'field range', 'data-name': name}, h('label', {for: id, text: label}), h('div', {class: 'range-row'}, input, out), hint)
         : h('div', {class: 'field', 'data-name': name}, h('label', {for: id, text: label}), input, hint);
     fields[name] = {wrap, input, type, o, sec: secId, label, out};
     return wrap;
@@ -2354,12 +2355,12 @@ builders.settings = sec => {
       const s = st[i];
       const g = LED_GROUPS[i];
       const known = typeof s === 'number' && s >= 0 && s < 3;
-      const c = known ? String(baseline[g[0] + s] || '#000000') : '#000000';
+      const c = known ? String(baseline[g[0] + s] || '#000000') : '';
       const dot = $('.dot', el);
-      dot.style.background = c;
-      dot.classList.toggle('off', !known || c === '#000000');
+      dot.style.background = known ? c : '';
+      dot.classList.toggle('unknown', !known);   // bilinmiyor ≠ sönük (siyah)
       dot.classList.toggle('blink', known && i === 0 && s > 0);
-      setText($('.led-live-st', el), known ? g[2][s] : '—');
+      setText($('.led-live-st', el), known ? g[2][s] : 'Durum bilinmiyor');
       el.setAttribute('aria-label', g[1] + ': ' + (known ? g[2][s] + ', ' + colorName(c) : 'durum bilinmiyor'));
     });
     setText($('#led-live-note'), d.led_ok === false ? 'LED sürücüsü başlatılamadı: şerit bağlantısını ve GPIO27’yi denetleyin. Aşağıdaki görünüm yalnız cihazın seçtiği durumdur.' : LED_NOTE);
@@ -2376,7 +2377,7 @@ builders.settings = sec => {
     setText($('#mq-note'), d.mqtt_note || '—');
     setText($('#mq-rec'), String(d.mqtt_reconnects ?? '—'));
   }
-  pageUpdaters.settings = d => { updateLedLive(d); updateMqLive(d); };
+  pageUpdaters.settings = d => { updateLedLive(d); updateMqLive(d); updateSvc(d); };
 
   function valueOf(f) {
     if (f.type === 'checkbox') return f.input.checked;
@@ -2619,7 +2620,7 @@ builders.settings = sec => {
     pinForm.addEventListener('submit', async e => {
       e.preventDefault();
       if (!pin.checkValidity() || !pin.value) { pin.reportValidity(); return; }
-      try { await api('/api/service/pin', {pin: pin.value}); pin.value = ''; toast('Servis PIN’i kaydedildi'); } catch (err) { showMsg({msg: pinMsg}, 'critical', err.message); }
+      try { await api('/api/service/pin', {pin: pin.value}); pin.value = ''; svcPinSet = true; svcErr = ''; updateSvc(D); toast('Servis PIN’i kaydedildi'); } catch (err) { showMsg({msg: pinMsg}, 'critical', err.message); }
     });
     const webState = h('p', {class: 'field-hint'}, 'Durum: ', h('b', {id: 'web-pw-state', class: d.passwordSet ? '' : 'warn-text', text: d.passwordSet ? 'Tanımlı · giriş gerekli' : 'Tanımlı değil · arayüz herkese açık'}));
     p.append(h('section', {class: 'panel'}, h('h3', {text: 'OTA parolası'}), otaWarn,
@@ -2633,36 +2634,67 @@ builders.settings = sec => {
 
   // ---- Bakım: kırmızı alan
   function renderMaint(p, d) {
-    const act = (label, ico, danger, title, text, path, body, okText) => {
-      const b = h('button', {type: 'button', class: danger ? 'danger' : '', 'data-icon': ico, 'data-text': ''}, label);
+    // Risk kademesi (skill G.11): '' nötr · 'warn' bağlantı/veri etkisi · 'danger' yıkıcı → iki aşamalı onay (yazılı kelime)
+    const act = (label, ico, tier, title, text, path, final) => {
+      const b = h('button', {type: 'button', class: tier || null, 'data-icon': ico, 'data-text': ''}, label);
       b.addEventListener('click', async () => {
-        if (!(await confirmDlg(title, text, okText || label, danger))) return;
-        try { const r = await api(path, body || {}); toast(r && r.message || 'İstek alındı'); } catch (err) { toast(err.message, true); }
+        if (!(await confirmDlg(title, text, label, tier || false))) return;
+        if (final && !(await typedConfirm(title + ' · son onay', final, 'SIFIRLA', 'Evet, ' + label.toLowerCase()))) return;
+        b.setAttribute('aria-busy', 'true');
+        try { const r = await api(path, {}); toast(r && r.message || 'İstek alındı'); } catch (err) { toast(err.message, true); }
+        b.removeAttribute('aria-busy');
       });
       return b;
     };
+    // Yıkıcı işlemin 2. aşaması: kelime yazılmadan onay düğmesi disabled; Vazgeç istek göndermez
+    const typedConfirm = (title, text, word, okText) => {
+      const inp = h('input', {type: 'text', id: 'dlg-word', autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'dlg-word-hint'});
+      const body = h('div', null, h('p', {text}), h('div', {class: 'field'}, h('label', {for: 'dlg-word', text: 'Onay için “' + word + '” yazın'}), inp,
+        h('small', {class: 'field-hint', id: 'dlg-word-hint', text: 'Büyük/küçük harf fark etmez.'})));
+      const pr = confirmDlg(title, body, okText, true);
+      const ok = $('#dlg-ok');
+      const norm = v => v.trim().toLocaleUpperCase('tr').replace(/İ/g, 'I');
+      const chk = () => { ok.disabled = norm(inp.value) !== norm(word); };
+      inp.addEventListener('input', chk);
+      chk();
+      setTimeout(() => inp.focus(), 0);
+      return pr;
+    };
     const svcPin = h('input', {type: 'password', id: 'svc-enter-pin', inputmode: 'numeric', maxlength: '8', autocomplete: 'off'});
-    const svcBtn = h('button', {type: 'button', 'data-icon': 'wrench', 'data-text': ''}, 'Servis moduna gir');
+    const svcBtn = h('button', {type: 'button', id: 'svc-btn', 'data-icon': 'wrench', 'data-text': ''}, 'Servis moduna gir');
+    const svcState = h('small', {class: 'svc-state', id: 'svc-state', role: 'status'});
+    svcPin.setAttribute('aria-describedby', 'svc-pin-hint');
+    svcErr = '';
+    svcPinSet = !!d.servicePinSet;
     svcBtn.addEventListener('click', async () => {
       const on = D && D.controller_state === 'SERVICE';
-      if (!on && !(await confirmDlg('Servis modu', 'Isıtma talebi sıfırlanır ve soğutma tamamlandıktan sonra çıkış testi izni verilir. Donma koruması servis süresince devre dışıdır. Devam edilsin mi?', 'Servis moduna gir', true))) return;
-      try { await api(on ? '/api/service/exit' : '/api/service/enter', {pin: svcPin.value}); svcPin.value = ''; toast(on ? 'Servis modundan çıkıldı' : 'Servis modu etkin'); } catch (err) { toast(err.message, true); }
+      if (!on && svcPinSet && !svcPin.value) { svcErr = 'Servis PIN’ini girin.'; updateSvc(D); svcPin.focus(); return; }
+      if (!on && !(await confirmDlg('Servis modu', 'Otomatik kontrol ve programlar durur, MQTT komutları reddedilir; çıkış testleri Çıkışlar sayfasında açılır. Donma koruması servis süresince devre dışıdır. Isıtma veya soğutma sürüyorsa cihaz girişi reddeder. Devam edilsin mi?', 'Servis moduna gir', 'warn'))) return;
+      svcBtn.setAttribute('aria-busy', 'true');
+      try { await api(on ? '/api/service/exit' : '/api/service/enter', {pin: svcPin.value}); svcPin.value = ''; svcErr = ''; toast(on ? 'Servis modundan çıkıldı' : 'Servis modu etkin'); }
+      catch (err) { svcErr = err.message; }
+      svcBtn.removeAttribute('aria-busy');
+      updateSvc(D);
     });
     const cnt = h('select', {id: 'cnt-sel'}, ...[['all', 'Tüm sayaçlar'], ['r1', 'R1'], ['r2', 'R2'], ['heater_fan', 'Isıtıcı fanı'], ['ventilation_fan', 'Havalandırma fanı']].map(([v, t]) => h('option', {value: v, text: t})));
-    const cntBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'timer', 'data-text': ''}, 'Sayaçları sıfırla');
+    const cntBtn = h('button', {type: 'button', class: 'warn', 'data-icon': 'timer', 'data-text': ''}, 'Sayaçları sıfırla');
+    cnt.setAttribute('aria-label', 'Sıfırlanacak sayaç');
     cntBtn.addEventListener('click', async () => {
-      if (!(await confirmDlg('Sayaç sıfırlama', (cnt.value === 'all' ? 'Bütün çıkışların' : cnt.options[cnt.selectedIndex].text + ' çıkışının') + ' çalışma saati ve anahtarlama sayacı sıfırlanacak. Önceki değer olay günlüğüne yazılır. Çıkışlar etkilenmez.', 'Sıfırla', true))) return;
+      if (!(await confirmDlg('Sayaç sıfırlama', (cnt.value === 'all' ? 'Bütün çıkışların' : cnt.options[cnt.selectedIndex].text + ' çıkışının') + ' çalışma saati ve anahtarlama sayacı sıfırlanacak. Önceki değer olay günlüğüne yazılır. Çıkışlar etkilenmez.', 'Sıfırla', 'warn'))) return;
       try { await api('/api/service/reset-counters', {out: cnt.value}); toast('Sayaçlar sıfırlandı'); } catch (err) { toast(err.message, true); }
     });
     const curSsid = h('dd', {id: 'cur-ssid', class: 'mono'}, d.ssid || 'Tanımlı değil (AP kurulum modu)');
     const wBtn = h('button', {type: 'button', 'data-icon': 'wifi', 'data-text': ''}, 'Ağ tara ve değiştir');
     wBtn.addEventListener('click', openWifiDialog);
     const wResetOut = h('div', {class: 'cmd-msg', id: 'wreset-out'});
-    const wReset = h('button', {type: 'button', class: 'danger', 'data-icon': 'wifioff', 'data-text': ''}, 'Wi-Fi bilgilerini sil');
+    const wReset = h('button', {type: 'button', class: 'warn', 'data-icon': 'wifioff', 'data-text': ''}, 'Wi-Fi bilgilerini sil');
     wReset.addEventListener('click', () => resetWifiFlow(wReset, wResetOut));
     const otaFile = h('input', {type: 'file', id: 'ota-file', accept: '.bin'});
     const otaPw = h('input', {type: 'password', id: 'ota-pw', maxlength: '64', autocomplete: 'off'});
-    const otaBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
+    const otaBtn = h('button', {type: 'button', class: 'warn', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
+    const fileInfo = h('small', {class: 'file-info', id: 'ota-file-info', text: 'Dosya seçilmedi.'});
+    otaFile.setAttribute('aria-describedby', 'ota-file-info');
+    otaFile.addEventListener('change', () => { const f = otaFile.files[0]; setText(fileInfo, f ? f.name + ' · ' + (f.size / 1024).toFixed(0) + ' KB' : 'Dosya seçilmedi.'); });
     const otaProg = h('progress', {id: 'ota-prog', max: '100', value: '0', hidden: true});
     const otaOut = h('div', {class: 'cmd-msg', id: 'ota-out', role: 'status'});
     // İki adım: (1) hazırlık — cihaz ısıtmayı durdurur, soğutma bitene kadar ready=false; (2) imaj ham gövde olarak
@@ -2670,7 +2702,7 @@ builders.settings = sec => {
     otaBtn.addEventListener('click', async () => {
       if (!otaFile.files.length) { toast('Önce .bin dosyası seçin', true); return; }
       const file = otaFile.files[0];
-      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, fan soğutması tamamlanır, sonra imaj yazılır. İmaj doğrulanamazsa etkinleştirilmez ve mevcut sürüm çalışmaya devam eder. Devam edilsin mi?', 'Güncellemeyi başlat', true))) return;
+      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, fan soğutması tamamlanır, sonra imaj yazılır. İmaj doğrulanamazsa etkinleştirilmez ve mevcut sürüm çalışmaya devam eder. Devam edilsin mi?', 'Güncellemeyi başlat', 'warn'))) return;
       otaBtn.disabled = true;
       otaProg.hidden = true;
       try {
@@ -2698,29 +2730,53 @@ builders.settings = sec => {
       } catch (err) { showMsg({msg: otaOut}, 'critical', err.message); toast(err.message, true); }
       otaBtn.disabled = false;
     });
+    const testMax = Number(d.service_test_max_s) || 120;
     p.append(h('section', {class: 'panel red-zone', 'aria-labelledby': 'rz-h'},
-      h('h3', {id: 'rz-h', text: '⚠ Kırmızı alan'}),
+      h('h3', {id: 'rz-h'}, icon('warn'), h('span', {text: 'Kırmızı alan'})),
       h('h4', {class: 'group-heading', text: 'Servis modu'}),
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'svc-enter-pin', text: 'Servis PIN’i'}), svcPin,
-        h('small', {class: 'field-hint', text: 'Çıkış testleri Çıkışlar sayfasında açılır: tek seferde tek rezistans, en çok 120 s, interlock’lar etkin.'})),
-        h('div', {class: 'field'}, h('span', {class: 'lbl', text: 'İşlem'}), svcBtn)),
+        h('small', {class: 'field-hint', id: 'svc-pin-hint', text: 'Çıkış testleri Çıkışlar sayfasında açılır: tek seferde tek çıkış, en çok ' + testMax + ' s (Ayarlar › Güvenlik); OTA, arıza ve interlock kilitleri etkindir. Süre dolunca servis modundan kendiliğinden çıkılır.'})),
+        h('div', {class: 'field'}, h('span', {class: 'lbl', text: 'İşlem'}), svcBtn, svcState)),
       h('h4', {class: 'group-heading', text: 'Kablosuz bağlantıyı değiştir'}),
       h('dl', {class: 'kv'}, h('dt', {text: 'Kayıtlı ağ'}), curSsid, h('dt', {text: 'Parola'}), h('dd', {text: d.passSet ? 'Kayıtlı' : 'Yok (açık ağ)'})),
       h('div', {class: 'btn-row'}, wBtn),
       h('p', {class: 'field-hint', text: 'Yeni ağ seçildiğinde cihaz yeniden başlamadan geçiş yapar ve bu sayfayla bağlantı kesilir. Bağlanamazsa 20–40 sn sonra kurulum ağı açılır ve kayıtlı ağ 5 dakikada bir yeniden denenir.'}),
       h('h4', {class: 'group-heading', text: 'Firmware'}),
-      h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile),
+      h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile, fileInfo),
         h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw, h('small', {class: 'field-hint', text: 'Parola tanımlı değilse boş bırakın.'})),
         h('div', {class: 'full btn-row'}, otaBtn, otaProg), h('div', {class: 'full'}, otaOut)),
       h('h4', {class: 'group-heading', text: 'Sayaçlar ve cihaz'}),
       h('div', {class: 'btn-row'}, cnt, cntBtn),
       h('div', {class: 'btn-row'},
-        act('Yeniden başlat', 'reboot', false, 'Yeniden başlatma', 'Rezistanslar kapatılıp soğutma tamamlandıktan sonra cihaz yeniden başlatılsın mı?', '/api/reboot'),
+        act('Yeniden başlat', 'reboot', '', 'Yeniden başlatma', 'Cihaz yeniden başlatılsın mı? Isıtma veya fan soğutması sürüyorsa cihaz isteği reddeder; önce modu KAPALI yapıp soğutmanın bitmesini bekleyin. Ayarlar korunur, sayfa 20–40 sn sonra yeniden bağlanır.', '/api/reboot'),
         wReset,
-        act('Fabrika ayarlarına dön', 'factory', true, 'Fabrika ayarları', 'Ağ, parola, ayarlar, kilitli olmayan alarmlar ve sayaçlar silinecek; güvenlik limitleri varsayılana döner. Fabrika ayarlarına dönülsün mü?', '/api/factory-reset')),
+        act('Fabrika ayarlarına dön', 'factory', 'danger', 'Fabrika ayarları', 'Silinir: Wi-Fi/ağ ayarları ve OTA parolası, MQTT, web parolası ve servis PIN’i, cihaz ayarları, programlar, sayaçlar, olay kaydı ve LED renkleri; güvenlik limitleri varsayılana döner. Kilitli alarmlar korunur. Isıtma veya soğutma sürüyorsa cihaz isteği reddeder. Devam edilsin mi?', '/api/factory-reset',
+          'Bu işlem geri alınamaz. Cihaz kurulum ağı (AP) ile yeniden başlar ve yeniden kurulması gerekir.')),
       wResetOut,
       h('p', {class: 'field-hint', text: 'Üç işlem ayrıdır: yeniden başlatma yalnız cihazı yeniden açar; Wi-Fi silme yalnız kablosuz bilgileri siler; fabrika ayarları bütün ayarları siler. Bağlantı sorununda önce Wi-Fi ağını değiştirin.'}),
       h('p', {class: 'field-hint', text: 'Yeniden başlatmada rezistanslar donanım pull-down’ları ile kapalı kalır; mod ve ayarlar korunur.'})));
+    updateSvc(D);
+  }
+  // Servis durumu: cihazın bildirdiği durum (/api/data.controller_state, service_remaining_s) + son giriş hatası
+  let svcErr = '', svcPinSet = true;
+  function updateSvc(dd) {
+    const st = $('#svc-state'), b = $('#svc-btn');
+    if (!st || !b) return;
+    const on = !!(dd && dd.controller_state === 'SERVICE');
+    const lbl = on ? 'Servis modundan çık' : 'Servis moduna gir';
+    const tn = [...b.childNodes].reverse().find(n => n.nodeType === 3);
+    if (tn) { if (tn.textContent !== lbl) tn.textContent = lbl; } else if (b.textContent !== lbl) b.textContent = lbl;
+    const noPin = !on && !svcPinSet;
+    b.disabled = noPin;
+    const pinIn = $('#svc-enter-pin');
+    if (pinIn) pinIn.disabled = noPin || on;
+    let txt, cls;
+    if (on) { txt = 'Servis modu etkin · kalan ' + fmt.dur(dd.service_remaining_s); cls = 'warn'; }
+    else if (svcErr) { txt = svcErr; cls = 'crit'; }
+    else if (!svcPinSet) { txt = 'Servis PIN’i tanımlı değil (Ayarlar › Erişim).'; cls = ''; }
+    else { txt = 'PIN tanımlı · servis modu kapalı.'; cls = ''; }
+    setText(st, txt);
+    st.className = 'svc-state' + (cls ? ' ' + cls : '');
   }
 
   async function load() {

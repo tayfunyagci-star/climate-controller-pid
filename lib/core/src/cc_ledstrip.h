@@ -27,8 +27,8 @@ struct LedConfig {
   uint32_t color[kLedCount][kLedStates] = {
       {0x00FF00, 0xFF8000, 0xFF0000},           // Durum: normal yeşil, uyarı turuncu, alarm kırmızı
       {0xFF0000, 0x00FF00, 0x0000FF},           // Ağ: yok kırmızı, Wi-Fi yeşil, AP mavi
-      {0xFF0000, 0x00FF00, 0x000000},           // MQTT: kesik kırmızı, bağlı yeşil, tanımsız sönük
-      {0xFF0000, 0x00FF00, 0x000000},           // mDNS: yok kırmızı, hazır yeşil, devre dışı sönük
+      {0xFF0000, 0x00FF00, 0xFFFF00},           // MQTT: kesik kırmızı, bağlı yeşil, tanımsız sarı
+      {0xFF0000, 0x00FF00, 0xFFFF00},           // mDNS: yok kırmızı, hazır yeşil, devre dışı sarı
       {0x000000, 0xFF8000, 0xFF0000},           // Isıtma: kapalı sönük, 1 kademe turuncu, 2 kademe kırmızı
       {0x000000, 0x00FFFF, 0x0000FF},           // Fan: kapalı sönük, ısıtıcı fanı turkuaz, havalandırma mavi
   };

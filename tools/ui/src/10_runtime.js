@@ -41,7 +41,8 @@ function confirmDlg(title, body, okText, danger) {
   else b.append(body);
   const ok = $('#dlg-ok');
   ok.textContent = okText || 'Onayla';
-  ok.className = danger ? 'danger' : 'primary';
+  ok.className = danger === 'warn' ? 'warn' : danger ? 'danger' : 'primary';   // onay düğmesi riskin sınıfını alır
+  ok.disabled = false;
   dlgTrigger = document.activeElement;
   return new Promise(res => {
     dlgResolve = res;

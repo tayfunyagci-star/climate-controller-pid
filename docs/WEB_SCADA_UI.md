@@ -248,8 +248,8 @@ Skill'deki Denetim listesi biçimi: rozet (`STATE`, `SAFETY`, `COMMAND`, `OUTPUT
 |---|---|---|---|---|---|
 | 1 Durum | `cls` | Normal (yeşil, sabit) | Uyarı (turuncu, **yanıp söner**) | Alarm / FAILSAFE (kırmızı, **yanıp söner**) | `alarm_state`, `controller_state` |
 | 2 Ağ | `clw` | Bağlantı yok (kırmızı) | Wi-Fi bağlı (yeşil) | Yalnız AP kurulum (mavi) | `sta_ok`, `ap_mode` |
-| 3 MQTT | `clq` | Kesik (kırmızı) | Bağlı (yeşil) | Tanımsız / kapalı (sönük) | F5'e kadar daima Tanımsız |
-| 4 mDNS | `clm` | Yok (kırmızı) | Hazır (yeşil) | Devre dışı (sönük) | `mdns_ok` |
+| 3 MQTT | `clq` | Kesik (kırmızı) | Bağlı (yeşil) | Tanımsız / kapalı (sarı) | F5'e kadar daima Tanımsız |
+| 4 mDNS | `clm` | Yok (kırmızı) | Hazır (yeşil) | Devre dışı (sarı) | `mdns_ok` |
 | 5 Isıtma | `clr` | Kapalı | 1 kademe (turuncu) | 2 kademe (kırmızı) | uygulanan R1/R2 |
 | 6 Fan | `clf` | Kapalı | Isıtıcı fanı (turkuaz) | Havalandırma (mavi) | uygulanan HF/VF |
 

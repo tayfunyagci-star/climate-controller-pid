@@ -699,6 +699,16 @@ CmdReply ClimateCore::setPrograms(const Program* list, uint8_t n, CmdSource src)
   return cmdLog(reply(CmdResult::ACCEPTED), src, (float)n);
 }
 
+CmdReply ClimateCore::resetCounters(uint8_t mask, CmdSource src) {
+  if (!isLocal(src)) return cmdLog(reply(CmdResult::REJECTED_POLICY), src, (float)mask);
+  for (uint8_t o = 0; o < OUT_COUNT; ++o) {
+    if (!(mask & (1u << o))) continue;
+    log(Severity::WARNING, EvSrc::SERVICE, EvCode::COUNTERS_RESET, (float)(guard_.onTimeMs(o) / 3600000.0), src);
+    guard_.setCounters(o, 0, 0);
+  }
+  return cmdLog(reply(CmdResult::ACCEPTED), src, (float)mask);
+}
+
 bool ClimateCore::restorePrograms(const Program* list, uint8_t n, bool enabled) {
   if (n > kMaxPrograms || !validatePrograms(list, n, cfg_.cabin_overtemp_limit).ok()) return false;
   for (uint8_t i = 0; i < n; ++i) progs_[i] = list[i];

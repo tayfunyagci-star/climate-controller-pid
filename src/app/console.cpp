@@ -7,7 +7,9 @@
 #include "hal_outputs.h"
 #include "pins.h"
 #include "net_manager.h"
+#include "auth.h"
 #include "status_led.h"
+#include "trend.h"
 #include "storage.h"
 #include "tasks.h"
 
@@ -243,7 +245,8 @@ void serviceButton(uint32_t now) {
   if (!g_btn_done && now - g_btn_since >= 10000) {
     g_btn_done = true;
     const char* err = nullptr;
-    Serial.println(net::resetWifi(&err) ? "[BUTON] 10 s: Wi-Fi silindi, kurulum AP'si aciliyor" : err);
+    auth::clearPassword();   // fiziksel kurtarma: web parolası da silinir (SECURITY §2); ayarlar korunur
+    Serial.println(net::resetWifi(&err) ? "[BUTON] 10 s: Wi-Fi ve web parolasi silindi, kurulum AP'si aciliyor" : err);
   }
 }
 
@@ -255,6 +258,7 @@ void consoleBegin(const BootState& bs) {
   gpio_pullup_en(hw::PIN_BOOT_BTN);
   hal::ledBegin();
   leds::begin();
+  trend::begin();
   printHelp();
 }
 
@@ -278,6 +282,7 @@ void consoleService() {
   if (now - g_led_ms >= 250) { g_led_ms = now; updateLed(); }
   hal::ledService(g_led, now);
   leds::service(now);
+  trend::tick(now);
   serviceButton(now);
   if (g_autostatus && now - g_status_ms >= 10000) { g_status_ms = now; printStatus(); }
 }

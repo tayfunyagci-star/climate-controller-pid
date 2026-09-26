@@ -22,7 +22,7 @@
 | Kimlik | Kullanıcı adı + parola; PBKDF2-HMAC-SHA256, 16 B tuz, iterasyon ESP32-S3'te ≤ 300 ms olacak şekilde ölçülerek seçilir; sabit zamanlı karşılaştırma |
 | Roller | `viewer` (misafir/okuma), `operator` (operasyonel komut), `admin` (ayar, güvenlik, servis, OTA). v1'de tek admin + isteğe bağlı operatör parolası |
 | Oturum | 128 bit rastgele token (donanım RNG), HttpOnly + SameSite=Strict çerez, 8 sa / beni hatırla 14 gün, en çok 4 oturum, parola değişiminde tüm oturumlar düşer |
-| Deneme sınırı | 5 hatalı / 5 dk → 5 dk bekleme (IP başına ve global) |
+| Deneme sınırı | 5 hatalı / 5 dk → 5 dk bekleme (IP başına); genel eşik 20 hatalı / 5 dk (dağıtık deneme). Uygulama F4: `lib/core/cc_auth` (native test), `src/app/auth` — PBKDF2-HMAC-SHA256 2048 iterasyon, 16 B tuz, oturum 128 bit `esp_fill_random`, `HttpOnly; SameSite=Strict` çerez |
 | İlk kurulum | Parola tanımsızsa kalıcı uyarı; **DESIGN DECISION:** ilk kurulum sihirbazı parola belirlemeyi ister (atlanabilir ama uyarı kalır) |
 | Kurtarma | Kurtarma sorusu (skill) + fiziksel buton 10 s → yalnız web parolasını temizleyip AP kurulumu (ayarlar ve güvenlik limitleri korunur) |
 | Başlıklar | CSP (skill §2), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` |

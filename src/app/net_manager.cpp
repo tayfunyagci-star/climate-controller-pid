@@ -348,6 +348,18 @@ Status status() { Lock l; return g_status; }
 NetSettings settings() { Lock l; return g_cfg; }
 bool passSet() { Lock l; return g_pass[0] != 0; }
 bool otaPasswordSet() { Lock l; return g_ota[0] != 0; }
+bool otaPasswordCheck(const char* pw) {
+  MD5Builder md;
+  md.begin();
+  md.add(String(pw));
+  md.calculate();
+  const String h = md.toString();
+  Lock l;
+  if (!g_ota[0] || h.length() != 32) return false;
+  uint8_t d = 0;
+  for (int i = 0; i < 32; ++i) d |= (uint8_t)(h[i] ^ g_ota[i]);   // sabit zamanlı
+  return d == 0;
+}
 bool clockValid() { Lock l; return g_status.clock_valid; }
 int64_t epochUtc() { return (int64_t)time(nullptr); }
 bool wifiConfigured() { Lock l; return g_ssid[0] != 0; }

@@ -17,6 +17,7 @@ struct Frame {
   uint8_t vsrc = 0;
   float err_rate = 0;
   char prog[24] = "—";
+  uint32_t svc_remaining_s = 0;
 };
 
 bool capture(Frame& f, uint32_t timeout_ms);          // çekirdek kilidi altında kısa kopya

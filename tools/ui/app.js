@@ -208,6 +208,7 @@ function closeDlg(v) {
 
 // ---------------------------------------------------------------- canlı veri
 let D = null;            // son /api/data
+let authNeeded = false;  // parola tanımlı ve oturum yok (401)
 let lastOk = 0;          // son başarılı veri zamanı
 let seenBuild = null;
 const pageUpdaters = {}; // bölüm → güncelleme fonksiyonu
@@ -216,11 +217,15 @@ function stale() { return !D || Date.now() - lastOk > STALE_MS; }
 async function poll() {
   try {
     const d = await api('/api/data');
+    authNeeded = false;
     if (seenBuild && d.fw_build && d.fw_build !== seenBuild) toast('Yeni firmware çalışıyor: ' + d.fw_build);
     seenBuild = d.fw_build || seenBuild;
     D = d;
     lastOk = Date.now();
-  } catch (e) { /* bayatlık aşağıda görünür */ }
+  } catch (e) {
+    // 401: oturum gerekli — bayat veri alarmı yerine tek not ve Oturum sayfası
+    if (e.status === 401) { if (!authNeeded && currentRoute !== 'login') go('login', true); authNeeded = true; }
+  }
   renderAll();
 }
 function renderAll() {
@@ -346,9 +351,9 @@ function renderShell() {
   const st = stale();
   $$('[data-pill=live]').forEach(p => {
     p.classList.toggle('stale', st);
-    setText(p.lastChild, !D ? 'Bağlanıyor' : (st ? 'Bayat · ' + fmt.age(Date.now() - lastOk) : 'Canlı · ' + fmt.age(Date.now() - lastOk)));
+    setText(p.lastChild, !D ? (authNeeded ? 'Oturum gerekli' : 'Bağlanıyor') : (st ? 'Bayat · ' + fmt.age(Date.now() - lastOk) : 'Canlı · ' + fmt.age(Date.now() - lastOk)));
   });
-  if (!D) return;
+  if (!D) { renderGlobalNotices(st); return; }
   const q = D.temperature_quality;
   $$('[data-pill=wifi]').forEach(p => setPill(p, D.wifi_ok ? 'ok' : 'bad', 'Wi-Fi · ' + (D.wifi_ok ? 'Hazır' : 'Yok')));
   $$('[data-pill=mqtt]').forEach(p => setPill(p, D.mqtt_status === 'CONNECTED' ? 'ok' : (D.mqtt_status === 'DISABLED' ? null : 'bad'),
@@ -390,7 +395,8 @@ function renderGlobalNotices(st) {
   const box = $('#global-notices');
   const list = [];
   // Ağ değişikliği sırasında beklenen kopma: alarm yağmuru yerine tek sakin not (yönergeler Wi-Fi penceresinde)
-  if (st && netTransitionActive()) list.push(['warn', 'Ağ değişikliği sürüyor: bu adresle bağlantı kesildi (son veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + ' önce). Kumandalar devre dışı; kontrol cihazda çalışmaya devam eder.']);
+  if (authNeeded) list.push(['warn', 'Oturum gerekli: cihaz web parolasıyla korunuyor. Oturum sayfasından giriş yapın.']);
+  else if (st && netTransitionActive()) list.push(['warn', 'Ağ değişikliği sürüyor: bu adresle bağlantı kesildi (son veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + ' önce). Kumandalar devre dışı; kontrol cihazda çalışmaya devam eder.']);
   else if (st) list.push(['critical', 'Veri bayat: son geçerli veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + '. Kumandalar devre dışı.']);
   if (D) {
     if (D.controller_state === 'FAILSAFE') list.push(['critical', 'GÜVENLİ DURUM · ' + (FAILSAFE_TR[D.failsafe_reason] || D.failsafe_reason) + '. Rezistanslar kapalı.']);
@@ -2061,12 +2067,16 @@ builders.login = sec => {
   f.addEventListener('submit', async e => {
     e.preventDefault();
     if (!u.value) { u.reportValidity(); return; }
-    try { const r = await api('/api/login', {user: u.value, password: p.value, remember: rem.checked}); p.value = ''; toast(r.message || 'Giriş yapıldı'); refreshSession(); }
+    try { const r = await api('/api/login', {user: u.value, password: p.value, remember: rem.checked}); p.value = ''; toast(r.message || 'Giriş yapıldı'); refreshSession(); go('overview', true); }
     catch (err) { showMsg({msg}, 'critical', err.message); }
   });
   $('#lg-out', f).addEventListener('click', async () => { try { await api('/api/logout', {}); toast('Çıkış yapıldı'); refreshSession(); } catch (e) { toast(e.message, true); } });
   async function refreshSession() {
-    try { const s = await api('/api/session'); setText($('#lg-state'), s.user ? 'Oturum: ' + s.user + ' · rol ' + s.role + ' · ' + s.expires : 'Oturum açık değil'); } catch (e) { /* */ }
+    try {
+      const s = await api('/api/session');
+      setText($('#lg-state'), s.password_set === false ? 'Web parolası tanımlı değil: giriş gerekmiyor (Ayarlar › Erişim’den parola belirleyin).'
+        : s.user ? 'Oturum: ' + s.user + ' · rol ' + s.role + ' · ' + s.expires : 'Oturum açık değil');
+    } catch (e) { /* */ }
   }
   sec.append(sectionHead('Oturum'), h('section', {class: 'panel'}, h('h3', {text: 'Giriş'}), h('p', {class: 'dim', id: 'lg-state'}, '—'), f,
     h('details', null, h('summary', {text: 'Parolamı unuttum'}), h('p', {class: 'field-hint', text: 'Kurtarma sorusu tanımlıysa cevapla kısa ömürlü bilet alınır ve yalnız web parolası değiştirilir. Tanımlı değilse cihazdaki servis düğmesi 10 s basılı tutularak web parolası silinir; ayarlar ve güvenlik limitleri korunur.'}))),
@@ -2606,11 +2616,13 @@ builders.settings = sec => {
       if (!pin.checkValidity() || !pin.value) { pin.reportValidity(); return; }
       try { await api('/api/service/pin', {pin: pin.value}); pin.value = ''; toast('Servis PIN’i kaydedildi'); } catch (err) { showMsg({msg: pinMsg}, 'critical', err.message); }
     });
+    const webState = h('p', {class: 'field-hint'}, 'Durum: ', h('b', {id: 'web-pw-state', class: d.passwordSet ? '' : 'warn-text', text: d.passwordSet ? 'Tanımlı · giriş gerekli' : 'Tanımlı değil · arayüz herkese açık'}));
     p.append(h('section', {class: 'panel'}, h('h3', {text: 'OTA parolası'}), otaWarn,
       h('p', {class: 'field-hint'}, 'Durum: ', otaState),
       h('p', {class: 'field-hint', text: 'Parola tanımlanır tanımlanmaz geçerli olur (yeniden başlatma gerekmez); yalnız özeti saklanır. Yükleme aracında --auth=<parola> kullanın. Her durumda yüklemeden önce ısıtma durdurulup soğutma tamamlanır.'}), otaForm),
       h('section', {class: 'panel'}, h('h3', {text: 'Web parolası'}),
-      h('p', {class: 'field-hint', text: 'Web parolası OTA parolasından ve servis PIN’inden bağımsızdır. Bağlantı şifrelenmez (yerel HTTP).'}), pwForm),
+      webState,
+      h('p', {class: 'field-hint', text: 'Web parolası OTA parolasından ve servis PIN’inden bağımsızdır. Parola tanımlanınca misafir okuma dışında her işlem oturum ister; unutulursa cihazdaki BOOT düğmesi 10 s basılı tutulur (Wi-Fi ve web parolası silinir, ayarlar korunur). Bağlantı şifrelenmez (yerel HTTP).'}), pwForm),
       h('section', {class: 'panel'}, h('h3', {text: 'Servis PIN’i'}), pinForm));
   }
 
@@ -2646,10 +2658,40 @@ builders.settings = sec => {
     const otaFile = h('input', {type: 'file', id: 'ota-file', accept: '.bin'});
     const otaPw = h('input', {type: 'password', id: 'ota-pw', maxlength: '64', autocomplete: 'off'});
     const otaBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
+    const otaProg = h('progress', {id: 'ota-prog', max: '100', value: '0', hidden: true});
+    const otaOut = h('div', {class: 'cmd-msg', id: 'ota-out', role: 'status'});
+    // İki adım: (1) hazırlık — cihaz ısıtmayı durdurur, soğutma bitene kadar ready=false; (2) imaj ham gövde olarak
+    // parça parça flash'a yazılır. Yanıt alınamazsa sonuç belirsizdir: sayfa yeniden bağlanınca sürüm denetlenir.
     otaBtn.addEventListener('click', async () => {
       if (!otaFile.files.length) { toast('Önce .bin dosyası seçin', true); return; }
-      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, soğutma tamamlanır, sonra imaj yazılır. Yeni imaj öz testi geçemezse önceki sürüme dönülür. Devam edilsin mi?', 'Güncellemeyi başlat', true))) return;
-      try { const r = await api('/api/ota/begin', {password: otaPw.value, size: otaFile.files[0].size}); toast(r.message || 'Güncelleme hazırlanıyor'); } catch (err) { toast(err.message, true); }
+      const file = otaFile.files[0];
+      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, fan soğutması tamamlanır, sonra imaj yazılır. İmaj doğrulanamazsa etkinleştirilmez ve mevcut sürüm çalışmaya devam eder. Devam edilsin mi?', 'Güncellemeyi başlat', true))) return;
+      otaBtn.disabled = true;
+      otaProg.hidden = true;
+      try {
+        for (let i = 0; ; i++) {
+          const r = await api('/api/ota/begin', {password: otaPw.value, size: file.size});
+          showMsg({msg: otaOut}, null, r.message);
+          if (r.ready) break;
+          if (i > 450) throw new Error('Hazırlık 15 dakikada tamamlanmadı; güncelleme iptal edildi.');
+          await new Promise(res => setTimeout(res, 2000));
+        }
+        otaProg.hidden = false;
+        const msg = await new Promise((res, rej) => {
+          const x = new XMLHttpRequest();
+          x.open('POST', '/api/ota');
+          x.setRequestHeader('X-SCADA', '1');
+          x.setRequestHeader('X-OTA-Password', otaPw.value);
+          x.setRequestHeader('Content-Type', 'application/octet-stream');
+          x.upload.onprogress = e => { if (e.lengthComputable) { otaProg.value = Math.round(100 * e.loaded / e.total); showMsg({msg: otaOut}, null, 'Yükleniyor… %' + otaProg.value); } };
+          x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch (e) { /* */ } (x.status === 200 ? res : rej)(new Error((j && j.message) || ('HTTP ' + x.status))); };
+          x.onerror = () => rej(new Error('Yanıt alınamadı. Cihaz yeniden başlıyor olabilir; sayfa yeniden bağlanınca sürümü denetleyin.'));
+          x.send(file);
+        });
+        showMsg({msg: otaOut}, null, msg.message);
+        toast(msg.message);
+      } catch (err) { showMsg({msg: otaOut}, 'critical', err.message); toast(err.message, true); }
+      otaBtn.disabled = false;
     });
     p.append(h('section', {class: 'panel red-zone', 'aria-labelledby': 'rz-h'},
       h('h3', {id: 'rz-h', text: '⚠ Kırmızı alan'}),
@@ -2664,7 +2706,7 @@ builders.settings = sec => {
       h('h4', {class: 'group-heading', text: 'Firmware'}),
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile),
         h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw, h('small', {class: 'field-hint', text: 'Parola tanımlı değilse boş bırakın.'})),
-        h('div', {class: 'full btn-row'}, otaBtn)),
+        h('div', {class: 'full btn-row'}, otaBtn, otaProg), h('div', {class: 'full'}, otaOut)),
       h('h4', {class: 'group-heading', text: 'Sayaçlar ve cihaz'}),
       h('div', {class: 'btn-row'}, cnt, cntBtn),
       h('div', {class: 'btn-row'},

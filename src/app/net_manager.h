@@ -46,6 +46,7 @@ Status status();
 NetSettings settings();
 bool passSet();
 bool otaPasswordSet();
+bool otaPasswordCheck(const char* pw);   // web OTA: özet karşılaştırması
 
 // Saat (programlar ve kontrol görevi)
 bool clockValid();

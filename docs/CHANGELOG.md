@@ -416,3 +416,34 @@ Kapsam: [ADR-007](ADR/ADR-007-persistence-flash-wear.md), [CONFIGURATION_MODEL �
 | UI regresyon (Playwright + sahte cihaz) | Geçti |
 | Kartta güç kesintisi / yazım ortası testi (faz çıkış kriteri) | **Yapılmadı** — kartta: ayar kaydet → 3 s içinde güç kes → açılışta `status` depo satırı ve ayar değeri |
 
+## F4 — Web oturumu ve kalan REST uçları (26.09.2026)
+
+Kapsam: [WEB_SCADA_UI §13](WEB_SCADA_UI.md), [SECURITY §2](SECURITY.md).
+
+### Eklenenler
+
+- **Erişim** (`lib/core/cc_auth` + `src/app/auth`): web parolası PBKDF2-HMAC-SHA256 (2048 iterasyon, 16 B tuz, NVS `auth`; yalnız özet), en çok 4 oturum (128 bit belirteç, `sid` çerezi `HttpOnly; SameSite=Strict`, oturum süresi `session_hours`, "beni hatırla" 14 gün), deneme sınırı (IP başına 5 / 5 dk → 5 dk; genel 20 / 5 dk), sabit zamanlı karşılaştırma. Parola tanımsızken cihaz açık (kalıcı uyarı); tanımlıyken misafir okuma (`guestRead`) dışında her uç oturum ister. Parola değişiminde bütün oturumlar düşer. BOOT 10 s: Wi-Fi ile birlikte web parolası da silinir (ayarlar korunur). `test_auth` (4 test).
+- Uçlar: `POST /api/login`, `/api/logout`, `GET /api/session`, `POST /api/password`; Ayarlar › Erişim (`user`, `guestRead`, `session_hours`) kaydı.
+- **Servis**: `/api/service/pin` (PIN özeti), `/enter` (PIN + deneme sınırı), `/exit`, `/test` (çekirdek servis testi), `/reset-counters` (önceki çalışma saati olay günlüğüne `COUNTERS_RESET`, kalıcı depoya hemen yazılır). `/api/data.service_remaining_s`.
+- **Programlar**: `POST /api/programs` — liste bütünüyle ayrıştırılıp `validatePrograms` ile doğrulanır, hata `{code, index}` (UI metinleri), başarıda F3 deposu kalıcı yazar.
+- **Trend**: `GET /api/trend?win=` — RAM halkaları 1 sa × 5 s ve 24 sa × 60 s (bitler dakika içinde VEYA), yanıt parça parça akıtılır (1440 örnek JSON belgesi RAM'e alınmaz). Saat geçersizse zaman ekseni çalışma süresidir.
+- **Web OTA**: `POST /api/ota/begin` (parola + boyut, güvenli duruş başlatır; `ready:false` iken UI 2 s'de bir yineler) → `POST /api/ota` ham gövde, 1.4 KB parçalarla `Update`'e; yetki, `X-SCADA`, OTA parolası ve hazır durum ilk parçada denetlenir. Başarıda kayıtlar yazılır ve yeniden başlatılır; hatada hazırlık geri alınır. UI: ilerleme çubuğu, yanıt alınamazsa "belirsiz sonuç" metni.
+- **Fabrika ayarı**: ısıtma/soğutma sürerken reddedilir; konfigürasyon, sayaç, olay, program dosyaları ve NVS `net`, `mqtt`, `led`, `auth` silinir; kilitli alarmlar korunur; yeniden başlatma → kurulum AP'si.
+- UI: 401'de tek "Oturum gerekli" notu ve Oturum sayfası (bayat veri alarmı yerine), girişten sonra Genel Bakış; Erişim'de web parolası durum satırı. Düzeltilen hata: veri hiç gelmediğinde genel notlar çizilmiyordu.
+- Olay kodları: `COUNTERS_RESET`, `FACTORY_RESET`, `AUTH_FAIL`, `PASSWORD_CHANGED`, `OTA_WEB`.
+
+### Sınırlar (sonraki fazlar)
+
+- Kurtarma sorusu, operatör rolü, konfigürasyon yedeği indir/geri yükle: yapılmadı (F6/F7 adayı).
+- OTA rollback (bootloader `APP_ROLLBACK`) etkin değil: imaj `Update.end` doğrulamasından geçmezse etkinleşmez, geçen imaj ilk açılışta çökerse otomatik geri dönüş yok (F7).
+- HTTPS yok (SECURITY §2 kararı).
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 21 paket geçti (`test_auth` yeni) |
+| Tam ESP32 imajı (xtensa gcc 8.4, Arduino-ESP32 2.0.17 + LittleFS + mbedTLS, elle bağlama) | ELF bağlandı, uygulama kodunda uyarı yok; flash ≈ 1.29 MB / 1.83 MB (%70), statik RAM ≈ 97 KB (+ trend 17 KB yığın) |
+| UI (Playwright + sahte cihaz) | 401 → Oturum sayfası → giriş → Genel Bakış; OTA hazırlık yinelemesi + ilerlemeli yükleme; önceki akışlar |
+| Kartta: parola/oturum, PBKDF2 süresi (seri log `[AUTH] PBKDF2 … ms`), web OTA, fabrika ayarı | **Yapılmadı** |
+

@@ -40,6 +40,7 @@ bool capture(Frame& f, uint32_t timeout_ms) {
   }
   f.vsrc = core().vent().sources;
   f.err_rate = core().t1().error_rate_10m;
+  f.svc_remaining_s = core().serviceRemainingS();
   strcpy(f.prog, "—");
   if (f.s.program_index >= 0 && f.s.program_index < core().programCount()) {
     strncpy(f.prog, core().programs()[f.s.program_index].name, sizeof f.prog - 1);

@@ -9,6 +9,7 @@
 #include "app/mqtt_client.h"
 #include "app/net_manager.h"
 #include "app/storage.h"
+#include "app/auth.h"
 #include "app/tasks.h"
 #include "app/core_api.h"
 
@@ -46,6 +47,7 @@ void setup() {
   storage::afterCoreBegin(boot.fault_reset);   // sayaçlar, olay sırası, programlar
   app::tasksStart(g_core);            // kontrol ağdan bağımsız başlar
   storage::begin();                   // flash'ın tek sahibi
+  auth::begin();                      // web parolası / servis PIN'i (F4)
   net::begin();                       // Wi-Fi + SNTP paralel (kontrol beklemez)
   mq::begin();                        // MQTT (F5): kendi görevi; broker yoksa DISABLED
   app::consoleBegin(bs);

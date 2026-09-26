@@ -531,11 +531,13 @@ builders.settings = sec => {
       if (!pin.checkValidity() || !pin.value) { pin.reportValidity(); return; }
       try { await api('/api/service/pin', {pin: pin.value}); pin.value = ''; toast('Servis PIN’i kaydedildi'); } catch (err) { showMsg({msg: pinMsg}, 'critical', err.message); }
     });
+    const webState = h('p', {class: 'field-hint'}, 'Durum: ', h('b', {id: 'web-pw-state', class: d.passwordSet ? '' : 'warn-text', text: d.passwordSet ? 'Tanımlı · giriş gerekli' : 'Tanımlı değil · arayüz herkese açık'}));
     p.append(h('section', {class: 'panel'}, h('h3', {text: 'OTA parolası'}), otaWarn,
       h('p', {class: 'field-hint'}, 'Durum: ', otaState),
       h('p', {class: 'field-hint', text: 'Parola tanımlanır tanımlanmaz geçerli olur (yeniden başlatma gerekmez); yalnız özeti saklanır. Yükleme aracında --auth=<parola> kullanın. Her durumda yüklemeden önce ısıtma durdurulup soğutma tamamlanır.'}), otaForm),
       h('section', {class: 'panel'}, h('h3', {text: 'Web parolası'}),
-      h('p', {class: 'field-hint', text: 'Web parolası OTA parolasından ve servis PIN’inden bağımsızdır. Bağlantı şifrelenmez (yerel HTTP).'}), pwForm),
+      webState,
+      h('p', {class: 'field-hint', text: 'Web parolası OTA parolasından ve servis PIN’inden bağımsızdır. Parola tanımlanınca misafir okuma dışında her işlem oturum ister; unutulursa cihazdaki BOOT düğmesi 10 s basılı tutulur (Wi-Fi ve web parolası silinir, ayarlar korunur). Bağlantı şifrelenmez (yerel HTTP).'}), pwForm),
       h('section', {class: 'panel'}, h('h3', {text: 'Servis PIN’i'}), pinForm));
   }
 
@@ -571,10 +573,40 @@ builders.settings = sec => {
     const otaFile = h('input', {type: 'file', id: 'ota-file', accept: '.bin'});
     const otaPw = h('input', {type: 'password', id: 'ota-pw', maxlength: '64', autocomplete: 'off'});
     const otaBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
+    const otaProg = h('progress', {id: 'ota-prog', max: '100', value: '0', hidden: true});
+    const otaOut = h('div', {class: 'cmd-msg', id: 'ota-out', role: 'status'});
+    // İki adım: (1) hazırlık — cihaz ısıtmayı durdurur, soğutma bitene kadar ready=false; (2) imaj ham gövde olarak
+    // parça parça flash'a yazılır. Yanıt alınamazsa sonuç belirsizdir: sayfa yeniden bağlanınca sürüm denetlenir.
     otaBtn.addEventListener('click', async () => {
       if (!otaFile.files.length) { toast('Önce .bin dosyası seçin', true); return; }
-      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, soğutma tamamlanır, sonra imaj yazılır. Yeni imaj öz testi geçemezse önceki sürüme dönülür. Devam edilsin mi?', 'Güncellemeyi başlat', true))) return;
-      try { const r = await api('/api/ota/begin', {password: otaPw.value, size: otaFile.files[0].size}); toast(r.message || 'Güncelleme hazırlanıyor'); } catch (err) { toast(err.message, true); }
+      const file = otaFile.files[0];
+      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, fan soğutması tamamlanır, sonra imaj yazılır. İmaj doğrulanamazsa etkinleştirilmez ve mevcut sürüm çalışmaya devam eder. Devam edilsin mi?', 'Güncellemeyi başlat', true))) return;
+      otaBtn.disabled = true;
+      otaProg.hidden = true;
+      try {
+        for (let i = 0; ; i++) {
+          const r = await api('/api/ota/begin', {password: otaPw.value, size: file.size});
+          showMsg({msg: otaOut}, null, r.message);
+          if (r.ready) break;
+          if (i > 450) throw new Error('Hazırlık 15 dakikada tamamlanmadı; güncelleme iptal edildi.');
+          await new Promise(res => setTimeout(res, 2000));
+        }
+        otaProg.hidden = false;
+        const msg = await new Promise((res, rej) => {
+          const x = new XMLHttpRequest();
+          x.open('POST', '/api/ota');
+          x.setRequestHeader('X-SCADA', '1');
+          x.setRequestHeader('X-OTA-Password', otaPw.value);
+          x.setRequestHeader('Content-Type', 'application/octet-stream');
+          x.upload.onprogress = e => { if (e.lengthComputable) { otaProg.value = Math.round(100 * e.loaded / e.total); showMsg({msg: otaOut}, null, 'Yükleniyor… %' + otaProg.value); } };
+          x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch (e) { /* */ } (x.status === 200 ? res : rej)(new Error((j && j.message) || ('HTTP ' + x.status))); };
+          x.onerror = () => rej(new Error('Yanıt alınamadı. Cihaz yeniden başlıyor olabilir; sayfa yeniden bağlanınca sürümü denetleyin.'));
+          x.send(file);
+        });
+        showMsg({msg: otaOut}, null, msg.message);
+        toast(msg.message);
+      } catch (err) { showMsg({msg: otaOut}, 'critical', err.message); toast(err.message, true); }
+      otaBtn.disabled = false;
     });
     p.append(h('section', {class: 'panel red-zone', 'aria-labelledby': 'rz-h'},
       h('h3', {id: 'rz-h', text: '⚠ Kırmızı alan'}),
@@ -589,7 +621,7 @@ builders.settings = sec => {
       h('h4', {class: 'group-heading', text: 'Firmware'}),
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile),
         h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw, h('small', {class: 'field-hint', text: 'Parola tanımlı değilse boş bırakın.'})),
-        h('div', {class: 'full btn-row'}, otaBtn)),
+        h('div', {class: 'full btn-row'}, otaBtn, otaProg), h('div', {class: 'full'}, otaOut)),
       h('h4', {class: 'group-heading', text: 'Sayaçlar ve cihaz'}),
       h('div', {class: 'btn-row'}, cnt, cntBtn),
       h('div', {class: 'btn-row'},

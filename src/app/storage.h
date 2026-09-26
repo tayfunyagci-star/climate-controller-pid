@@ -29,6 +29,8 @@ void bootLoad(cc::Config& cfg, cc::BootInfo& boot);
 void afterCoreBegin(bool fault_reset);
 void begin();                                // StorageTask
 bool flushNow(uint32_t timeout_ms);          // reboot/OTA öncesi: kirli her şeyi yaz ve bekle
+// Fabrika ayarı: bütün kayıt dosyalarını siler; sonrasında yazım durur (yeniden başlatma beklenir)
+bool factoryErase(uint32_t timeout_ms);
 Status status();
 bool configLoaded();
 cc::CounterRec counters();                   // günlük geçmiş (MQTT history) ve tanı

@@ -68,7 +68,7 @@ SemaphoreHandle_t g_mtx = nullptr;          // g_status, g_cnt, g_ev (okuyucular
 Status g_status;
 cc::CounterRec g_cnt;
 cc::EventStoreRec g_ev;
-std::atomic<bool> g_flush_req{false};
+std::atomic<bool> g_flush_req{false}, g_erase_req{false}, g_erased{false};
 SemaphoreHandle_t g_flush_done = nullptr;
 
 struct Lock {
@@ -252,10 +252,22 @@ void task(void*) {
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(100));
     const uint32_t now = millis();
+    if (g_erase_req.exchange(false)) {
+      // Kilitli alarmlar korunur (fabrika ayarı güvenlik kilidini kaldırmaz; reset ayrı ve koşula bağlıdır)
+      static const char* const bases[] = {"config", "counters", "events", "programs"};
+      static const char* const ext[] = {"bin", "bak", "tmp"};
+      bool ok = true;
+      char n[24];
+      for (const char* b : bases)
+        for (const char* e : ext) { snprintf(n, sizeof n, "%s.%s", b, e); ok = g_fs.remove(n) && ok; }
+      g_erased.store(ok);                     // sonrasında yazım yok: yeniden başlatmada varsayılanlar
+      xSemaphoreGive(g_flush_done);
+      continue;
+    }
     const bool force = g_flush_req.exchange(false);
     if (!force && now - last < 1000) continue;
     last = now;
-    if (g_status.fs_ok) cycle(now, force);
+    if (g_status.fs_ok && !g_erased.load()) cycle(now, force);
     if (force) xSemaphoreGive(g_flush_done);
   }
 }
@@ -371,6 +383,13 @@ bool flushNow(uint32_t timeout_ms) {
   xSemaphoreTake(g_flush_done, 0);
   g_flush_req.store(true);
   return xSemaphoreTake(g_flush_done, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
+bool factoryErase(uint32_t timeout_ms) {
+  if (!g_status.fs_ok || !g_flush_done) return false;
+  xSemaphoreTake(g_flush_done, 0);
+  g_erase_req.store(true);
+  return xSemaphoreTake(g_flush_done, pdMS_TO_TICKS(timeout_ms)) == pdTRUE && g_erased.load();
 }
 
 Status status() { Lock l; return g_status; }

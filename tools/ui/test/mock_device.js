@@ -517,7 +517,7 @@ window.fetch = async function (url, opt) {
   if (p === '/api/net/finish') { if (!(NET.hold > Date.now())) return json({message: 'Kurulum ağı devir durumunda değil'}, 409); NET.hold = 0; setTimeout(() => { flags.ap = false; }, 300); return json({message: 'Kurulum ağı kapatılıyor.'}); }
   if (p === '/api/reset-wifi') { NET.phase = 'AP_ONLY'; NET.result = 'NONE'; NET.try++; flags.ap = true; flags.ssid = ''; ev('WARNING', 'NET', 'Wi-Fi kimliği silindi; kurulum AP’si açıldı'); return json({message: 'Wi-Fi silindi; kurulum AP’si açıldı (SCADA_AP_3C71BF4A)'}); }
   if (p === '/api/settings' && !body) {
-    const out = Object.assign({}, cfg, {mqtt_topic_base: cfg.mqtt_base + '/' + cfg.slug, otaPasswordSet: !!flags.otaPw, mqPwSet: true, servicePinSet: true, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
+    const out = Object.assign({}, cfg, {mqtt_topic_base: cfg.mqtt_base + '/' + cfg.slug, otaPasswordSet: !!flags.otaPw, passwordSet: true, mqPwSet: true, servicePinSet: true, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
     return json(out);
   }
   if (p === '/api/settings') {
@@ -551,7 +551,7 @@ window.fetch = async function (url, opt) {
     return json({message: 'Kilit sıfırlandı'});
   }
   if (p === '/api/events') return json({events: S.events, overwritten: 0});
-  if (p === '/api/session') return json({user: 'admin', role: 'admin', expires: '8 sa'});
+  if (p === '/api/session') return json({user: 'admin', role: 'admin', expires: '7 sa 58 dk kaldı', password_set: true, guest_read: false, auth: true});
   if (p === '/api/login') return body.password ? json({message: 'Giriş yapıldı'}) : json({message: 'Kullanıcı adı veya parola hatalı'}, 401);
   if (p === '/api/logout') return json({message: 'Çıkış yapıldı'});
   if (p === '/api/password') return json({message: 'Parola kaydedildi; bütün oturumlar kapatıldı'});
@@ -575,7 +575,7 @@ window.fetch = async function (url, opt) {
     ev('WARNING', 'CONFIG', body.password ? 'OTA parolası değişti' : 'OTA parolası kaldırıldı (parolasız OTA)');
     return json({message: body.password ? 'OTA parolası kaydedildi; yüklemede --auth gerekir.' : 'OTA parolası kaldırıldı; OTA parolasız açık.', otaPasswordSet: !!body.password});
   }
-  if (p === '/api/ota/begin') return json({message: 'Önizleme: firmware yazılmaz'}, 409);
+  if (p === '/api/ota/begin') { flags.otaPrep = (flags.otaPrep || 0) + 1; return json(flags.otaPrep < 3 ? {ready: false, message: 'Hazırlanıyor: ısıtma durduruldu, fan soğutması bitince yükleme başlayacak.'} : {ready: true, message: 'Cihaz güncellemeye hazır; imaj yükleniyor.'}); }
   if (['/api/reboot', '/api/factory-reset'].includes(p)) return json({message: 'Önizleme: cihaz işlemi yapılmadı'});
   return json({message: 'Bilinmeyen uç: ' + p}, 404);
 };

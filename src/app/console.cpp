@@ -7,6 +7,10 @@
 #include "hal_outputs.h"
 #include "pins.h"
 #include "net_manager.h"
+#include "auth.h"
+#include "status_led.h"
+#include "trend.h"
+#include "storage.h"
 #include "tasks.h"
 
 namespace app {
@@ -78,8 +82,14 @@ void printStatus() {
   Serial.printf("ag: %s  ssid='%s' ip=%s rssi=%d  AP=%s%s  mDNS=%s.local  OTA=%s  %s\n",
                 ns.sta_ok ? "BAGLI" : (ns.configured ? "BAGLANAMADI" : "KURULUM"), ns.ssid, ns.ip, ns.rssi,
                 ns.ap_mode ? ns.ap_name : "kapali", ns.ap_mode ? " (192.168.4.1, sifre etikette)" : "",
-                net::settings().mdns, ns.ota_ready ? "hazir" : (net::otaPasswordSet() ? "baglanti bekliyor" : "kapali (otapass)"),
+                net::settings().mdns, ns.ota_ready ? (net::otaPasswordSet() ? "hazir" : "hazir (PAROLASIZ)") : "baglanti bekliyor",
                 ns.note);
+  {
+    const storage::Status st = storage::status();
+    Serial.printf("depo: fs=%s config=%s rev=%u boot=%u kayit=%u hata=%u %s\n", st.fs_ok ? "OK" : "YOK",
+                  st.config_loaded ? "kayitli" : (st.config_corrupt ? "BOZUK" : "varsayilan"), (unsigned)st.config_rev,
+                  (unsigned)st.boots, (unsigned)st.saves, (unsigned)st.errors, st.last_error);
+  }
   Serial.printf("gorev yas(ms) saf=%lu out=%lu ctl=%lu sen=%lu | azami(us) %lu/%lu/%lu/%lu | kilit zaman asimi=%lu\n",
                 (unsigned long)ts.age_ms[0], (unsigned long)ts.age_ms[1], (unsigned long)ts.age_ms[2], (unsigned long)ts.age_ms[3],
                 (unsigned long)ts.max_us[0], (unsigned long)ts.max_us[1], (unsigned long)ts.max_us[2], (unsigned long)ts.max_us[3],
@@ -103,7 +113,7 @@ void printHelp() {
       "  recovery              restart firtinasi sonrasi operator onayi\n"
       "  wifi <ssid> [parola]  Wi-Fi kaydet ve baglan (parola yazdirilmaz);  wifi clear -> kurulum AP'si\n"
       "  ntp <sunucu>          NTP sunucusu (varsayilan pool.ntp.org; 2. sunucu ag gecidi)\n"
-      "  otapass <parola>|clear  OTA parolasi (8-64; parolasiz OTA yok, D-17)\n"
+      "  otapass <parola>|clear  OTA parolasi (8-64; clear = parolasiz OTA, D-17)\n"
       "  ota                   OTA hazirligi: isitma durur, post-cool biter; sonra pio -t upload\n"
       "  reboot                guvenli yeniden baslatma\n"
 #ifdef CC_HIL
@@ -167,7 +177,7 @@ void execute(char* line) {
   } else if (!strcmp(c, "otapass") && argc >= 2) {
     const char* err = nullptr;
     const bool ok = net::setOtaPassword(!strcmp(argv[1], "clear") ? "" : argv[1], &err);
-    Serial.println(ok ? (strcmp(argv[1], "clear") ? "OTA parolasi kaydedildi (yalniz ozet saklanir)" : "OTA kapatildi") : err);
+    Serial.println(ok ? (strcmp(argv[1], "clear") ? "OTA parolasi kaydedildi (yalniz ozet saklanir)" : "OTA parolasi kaldirildi (OTA parolasiz acik)") : err);
     memset(g_line, 0, sizeof g_line);
   } else if (!strcmp(c, "ota")) {
     cc::CmdReply r;
@@ -178,7 +188,7 @@ void execute(char* line) {
     bool heating = false;
     locked([&] { heating = core().outputs()[cc::R1] || core().outputs()[cc::R2] || core().snapshot().post_cool_remaining_s > 0; });
     if (heating) { Serial.println("isitma/post-cool suruyor: once 'set operating_mode OFF' ve post-cool bitsin"); return; }
-    Serial.println("yeniden baslatiliyor");
+    Serial.println(storage::flushNow(2000) ? "kayitlar yazildi; yeniden baslatiliyor" : "kayit dogrulanamadi; yeniden baslatiliyor");
     Serial.flush();
     ESP.restart();
   }
@@ -235,7 +245,8 @@ void serviceButton(uint32_t now) {
   if (!g_btn_done && now - g_btn_since >= 10000) {
     g_btn_done = true;
     const char* err = nullptr;
-    Serial.println(net::resetWifi(&err) ? "[BUTON] 10 s: Wi-Fi silindi, kurulum AP'si aciliyor" : err);
+    auth::clearPassword();   // fiziksel kurtarma: web parolası da silinir (SECURITY §2); ayarlar korunur
+    Serial.println(net::resetWifi(&err) ? "[BUTON] 10 s: Wi-Fi ve web parolasi silindi, kurulum AP'si aciliyor" : err);
   }
 }
 
@@ -246,6 +257,8 @@ void consoleBegin(const BootState& bs) {
   gpio_set_direction(hw::PIN_BOOT_BTN, GPIO_MODE_INPUT);
   gpio_pullup_en(hw::PIN_BOOT_BTN);
   hal::ledBegin();
+  leds::begin();
+  trend::begin();
   printHelp();
 }
 
@@ -268,6 +281,8 @@ void consoleService() {
   const uint32_t now = millis();
   if (now - g_led_ms >= 250) { g_led_ms = now; updateLed(); }
   hal::ledService(g_led, now);
+  leds::service(now);
+  trend::tick(now);
   serviceButton(now);
   if (g_autostatus && now - g_status_ms >= 10000) { g_status_ms = now; printStatus(); }
 }

@@ -36,7 +36,8 @@ const ICONS = {
   lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
   calendar: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4M8 14h2M14 14h2M8 17h2',
   download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
-  upload: 'M12 20V9M7 14l5-5 5 5M5 4h14'
+  upload: 'M12 20V9M7 14l5-5 5 5M5 4h14',
+  bulb: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.8 10.6c.7.6 1.3 1.5 1.3 2.4h5c0-.9.6-1.8 1.3-2.4A6 6 0 0 0 12 3z'
 };
 const SVGNS = 'http://www.w3.org/2000/svg';
 function icon(name, cls) {
@@ -191,7 +192,8 @@ function confirmDlg(title, body, okText, danger) {
   else b.append(body);
   const ok = $('#dlg-ok');
   ok.textContent = okText || 'Onayla';
-  ok.className = danger ? 'danger' : 'primary';
+  ok.className = danger === 'warn' ? 'warn' : danger ? 'danger' : 'primary';   // onay düğmesi riskin sınıfını alır
+  ok.disabled = false;
   dlgTrigger = document.activeElement;
   return new Promise(res => {
     dlgResolve = res;
@@ -207,6 +209,7 @@ function closeDlg(v) {
 
 // ---------------------------------------------------------------- canlı veri
 let D = null;            // son /api/data
+let authNeeded = false;  // parola tanımlı ve oturum yok (401)
 let lastOk = 0;          // son başarılı veri zamanı
 let seenBuild = null;
 const pageUpdaters = {}; // bölüm → güncelleme fonksiyonu
@@ -215,11 +218,15 @@ function stale() { return !D || Date.now() - lastOk > STALE_MS; }
 async function poll() {
   try {
     const d = await api('/api/data');
+    authNeeded = false;
     if (seenBuild && d.fw_build && d.fw_build !== seenBuild) toast('Yeni firmware çalışıyor: ' + d.fw_build);
     seenBuild = d.fw_build || seenBuild;
     D = d;
     lastOk = Date.now();
-  } catch (e) { /* bayatlık aşağıda görünür */ }
+  } catch (e) {
+    // 401: oturum gerekli — bayat veri alarmı yerine tek not ve Oturum sayfası
+    if (e.status === 401) { if (!authNeeded && currentRoute !== 'login') go('login', true); authNeeded = true; }
+  }
   renderAll();
 }
 function renderAll() {
@@ -345,9 +352,9 @@ function renderShell() {
   const st = stale();
   $$('[data-pill=live]').forEach(p => {
     p.classList.toggle('stale', st);
-    setText(p.lastChild, !D ? 'Bağlanıyor' : (st ? 'Bayat · ' + fmt.age(Date.now() - lastOk) : 'Canlı · ' + fmt.age(Date.now() - lastOk)));
+    setText(p.lastChild, !D ? (authNeeded ? 'Oturum gerekli' : 'Bağlanıyor') : (st ? 'Bayat · ' + fmt.age(Date.now() - lastOk) : 'Canlı · ' + fmt.age(Date.now() - lastOk)));
   });
-  if (!D) return;
+  if (!D) { renderGlobalNotices(st); return; }
   const q = D.temperature_quality;
   $$('[data-pill=wifi]').forEach(p => setPill(p, D.wifi_ok ? 'ok' : 'bad', 'Wi-Fi · ' + (D.wifi_ok ? 'Hazır' : 'Yok')));
   $$('[data-pill=mqtt]').forEach(p => setPill(p, D.mqtt_status === 'CONNECTED' ? 'ok' : (D.mqtt_status === 'DISABLED' ? null : 'bad'),
@@ -356,6 +363,8 @@ function renderShell() {
   $$('[data-pill=time]').forEach(p => setPill(p, D.time_valid === 'ON' ? 'ok' : 'warn', 'Saat · ' + (D.time_valid === 'ON' ? 'Eşitli' : 'Bekleniyor')));
   // kimlik
   setText($('#dev-name'), D.device_name || 'Kulübe İklim');
+  const title = (D.device_name || 'Kulübe İklim') + ' · ' + ($('#' + currentRoute) ? $('#' + currentRoute).dataset.title : '');
+  if (document.title !== title) document.title = title;
   setText($('#id-ip'), D.ip || '—');
   setText($('#id-mdns'), (D.mdns || '—') + '.local');
   setText($('#id-client'), D.client_ip || '—');
@@ -387,7 +396,8 @@ function renderGlobalNotices(st) {
   const box = $('#global-notices');
   const list = [];
   // Ağ değişikliği sırasında beklenen kopma: alarm yağmuru yerine tek sakin not (yönergeler Wi-Fi penceresinde)
-  if (st && netTransitionActive()) list.push(['warn', 'Ağ değişikliği sürüyor: bu adresle bağlantı kesildi (son veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + ' önce). Kumandalar devre dışı; kontrol cihazda çalışmaya devam eder.']);
+  if (authNeeded) list.push(['warn', 'Oturum gerekli: cihaz web parolasıyla korunuyor. Oturum sayfasından giriş yapın.']);
+  else if (st && netTransitionActive()) list.push(['warn', 'Ağ değişikliği sürüyor: bu adresle bağlantı kesildi (son veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + ' önce). Kumandalar devre dışı; kontrol cihazda çalışmaya devam eder.']);
   else if (st) list.push(['critical', 'Veri bayat: son geçerli veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + '. Kumandalar devre dışı.']);
   if (D) {
     if (D.controller_state === 'FAILSAFE') list.push(['critical', 'GÜVENLİ DURUM · ' + (FAILSAFE_TR[D.failsafe_reason] || D.failsafe_reason) + '. Rezistanslar kapalı.']);
@@ -397,6 +407,8 @@ function renderGlobalNotices(st) {
     if (D.ap_mode && D.net_setup !== 'HANDOVER' && !(currentRoute === 'overview' && !setupCollapsed))
       list.push(['warn', (D.wifi_ssid ? 'Cihaz kayıtlı Wi-Fi ağına bağlanamadı; ' : 'Wi-Fi kurulumu tamamlanmadı; ') + 'kurulum ağı “' + (D.ap_name || 'SCADA_AP') + '” açık (' + (D.ap_ip || '192.168.4.1') + '). Ağ seçimi: Genel Bakış.']);
     if (D.net_note) list.push(['warn', D.net_note]);
+    if (D.mqtt_status === 'AUTH_FAIL') list.push(['warn', 'MQTT broker kimlik bilgilerini reddetti. Ayarlar › MQTT bölümünden kullanıcı adı ve parolayı denetleyin.']);
+    if (D.ota_password_set === false) list.push(['warn', 'OTA parolasız açık: aynı ağdaki herkes firmware yükleyebilir. Ayarlar › Erişim › OTA parolası bölümünden parola belirleyin.']);
     if (D.password_set === false) list.push(['warn', 'Web parolası tanımlı değil. Ayarlar › Erişim bölümünden parola belirleyin.']);
   }
   const key = JSON.stringify(list);
@@ -993,7 +1005,7 @@ async function resetWifiFlow(btn, out) {
     h('p', {text: 'Diğer cihaz ayarları korunacak. Isıtma kontrolü ve güvenlik işlevleri çalışmaya devam eder.'}),
     h('dl', {class: 'kv'}, h('dt', {text: 'Kurulum ağı'}), h('dd', {text: apName(d)}), h('dt', {text: 'Parola'}), h('dd', {text: 'Cihaz etiketinde'}),
       h('dt', {text: 'Kurulum adresi'}), h('dd', {text: apUrl(d)})));
-  if (!(await confirmDlg('Wi-Fi bilgilerini sil', body, 'Wi-Fi bilgilerini sil', true))) return;
+  if (!(await confirmDlg('Wi-Fi bilgilerini sil', body, 'Wi-Fi bilgilerini sil', 'warn'))) return;
   btn.setAttribute('aria-busy', 'true');
   NT = {ctx: 'reset', ssid: '', t0: Date.now(), sentAt: Date.now(), base: null, stage: 'saved'};
   let msg;
@@ -2056,12 +2068,16 @@ builders.login = sec => {
   f.addEventListener('submit', async e => {
     e.preventDefault();
     if (!u.value) { u.reportValidity(); return; }
-    try { const r = await api('/api/login', {user: u.value, password: p.value, remember: rem.checked}); p.value = ''; toast(r.message || 'Giriş yapıldı'); refreshSession(); }
+    try { const r = await api('/api/login', {user: u.value, password: p.value, remember: rem.checked}); p.value = ''; toast(r.message || 'Giriş yapıldı'); refreshSession(); go('overview', true); }
     catch (err) { showMsg({msg}, 'critical', err.message); }
   });
   $('#lg-out', f).addEventListener('click', async () => { try { await api('/api/logout', {}); toast('Çıkış yapıldı'); refreshSession(); } catch (e) { toast(e.message, true); } });
   async function refreshSession() {
-    try { const s = await api('/api/session'); setText($('#lg-state'), s.user ? 'Oturum: ' + s.user + ' · rol ' + s.role + ' · ' + s.expires : 'Oturum açık değil'); } catch (e) { /* */ }
+    try {
+      const s = await api('/api/session');
+      setText($('#lg-state'), s.password_set === false ? 'Web parolası tanımlı değil: giriş gerekmiyor (Ayarlar › Erişim’den parola belirleyin).'
+        : s.user ? 'Oturum: ' + s.user + ' · rol ' + s.role + ' · ' + s.expires : 'Oturum açık değil');
+    } catch (e) { /* */ }
   }
   sec.append(sectionHead('Oturum'), h('section', {class: 'panel'}, h('h3', {text: 'Giriş'}), h('p', {class: 'dim', id: 'lg-state'}, '—'), f,
     h('details', null, h('summary', {text: 'Parolamı unuttum'}), h('p', {class: 'field-hint', text: 'Kurtarma sorusu tanımlıysa cevapla kısa ömürlü bilet alınır ve yalnız web parolası değiştirilir. Tanımlı değilse cihazdaki servis düğmesi 10 s basılı tutularak web parolası silinir; ayarlar ve güvenlik limitleri korunur.'}))),
@@ -2076,7 +2092,7 @@ const SEL = (...o) => o.map(x => Array.isArray(x) ? x : [x, x]);
 const DEF = {
   net: [
     ['Cihaz kimliği', [
-      ['adN', 'Cihaz adı (görünen)', 'text', {req: 1, ml: 32, hint: 'Yalnız web arayüzünde görünür; MQTT keşif adı sabittir.'}],
+      ['adN', 'Cihaz adı', 'text', {req: 1, ml: 32, hint: 'Üst başlıkta ve tarayıcı sekmesinde görünür. MQTT keşif adı ve SLUG bundan etkilenmez.'}],
       ['mdns', 'mDNS adı', 'text', {req: 1, ml: 63, pat: '[A-Za-z0-9]([A-Za-z0-9\\-]*[A-Za-z0-9])?', hint: 'Harf, rakam ve tire; “.local” eki eklenir.'}]]],
     ['IP yapılandırması', [
       ['staticEnabled', 'Statik IP kullan', 'checkbox', {hint: 'Kapalıyken adres DHCP ile alınır. Statik bağlantı kurulamazsa cihaz DHCP’ye döner.'}],
@@ -2091,8 +2107,8 @@ const DEF = {
       ['mqtt_password', 'Yeni MQTT parolası', 'password', {ml: 128, off: 'clearMqttPassword', hint: 'Boş bırakılırsa kayıtlı parola korunur.'}],
       ['clearMqttPassword', 'Kayıtlı MQTT parolasını sil', 'checkbox', {ui: 1}]]],
     ['Topic ve yayın', [
-      ['mqtt_base', 'Kök topic', 'text', {req: 1, ml: 96, pat: '[^+#\\s]+', hint: 'Tam taban: <kök>/<SLUG>. SLUG değişimi taşınma sihirbazıyla yapılır.'}],
-      ['slug', 'SLUG (cihaz kimliği)', 'text', {ro: 1}],
+      ['mqtt_base', 'Kök topic', 'text', {req: 1, ml: 96, pat: '[^+#\\s]+', hint: 'Tam taban: <kök>/<SLUG>. Kök değişince eski adrese offline yazılır ve eski kayıtlar silinir (taşınma).'}],
+      ['slug', 'SLUG (MQTT kimliği)', 'text', {ro: 1, hint: 'Salt okunur. Görünen cihaz adı: Ağ › Cihaz kimliği.'}],
       ['state_active_s', 'Isıtırken yayın (s)', 'number', {min: 1, max: 30}], ['state_idle_s', 'Boşta yayın (s)', 'number', {min: 10, max: 59, hint: 'Suite nokta geçerlilik süresinden kısa olmalı (< 60 s).'}],
       ['diag_interval_s', 'Tanı yayını (s)', 'number', {min: 30, max: 300}],
       ['discovery_enabled', 'Otomatik keşif (Home Assistant / Studio)', 'checkbox', {hint: 'Kapatılınca yayımlanmış keşif kayıtları silinir.'}],
@@ -2174,44 +2190,74 @@ const DEF = {
       ['service_test_max_s', 'Çıkış testi azami süre (s)', 'number', {min: 10, max: 300}],
       ['restart_storm_limit', 'Aşırı yeniden başlatma sınırı', 'number', {min: 3, max: 10}],
       ['restart_storm_window_min', 'Aşırı yeniden başlatma penceresi (dk)', 'number', {min: 10, max: 120}]]]],
+  led: [
+    ['LED parlaklığı', [
+      ['ledB', 'Parlaklık (%)', 'range', {min: 0, max: 100, step: 1, hint: 'Bütün şerit için. 0: LED’ler sönük. Arayüz teması fiziksel LED rengini değiştirmez.'}]]]],
   access: [
     ['Erişim', [
       ['user', 'Web kullanıcı adı', 'text', {req: 1, ml: 32}],
       ['guestRead', 'Misafirler durum okuyabilir', 'checkbox'],
-      ['session_hours', 'Oturum süresi (sa)', 'number', {min: 1, max: 24}]]],
-    ['OTA parolası', [
-      ['otaPw', 'Yeni OTA parolası', 'password', {minl: 8, ml: 64, off: 'clearOtaPassword', hint: 'Bu cihazda parolasız OTA kapalıdır; parola tanımlanmadan güncelleme yapılamaz. Yalnız özet saklanır.'}],
-      ['clearOtaPassword', 'OTA parolasını kaldır (OTA kapanır)', 'checkbox', {ui: 1}]]]],
+      ['session_hours', 'Oturum süresi (sa)', 'number', {min: 1, max: 24}]]]],
   maint: []
 };
 const SECTIONS = [['net', 'Ağ', 'wifi'], ['mqtt', 'MQTT', 'antenna'], ['io', 'Sensörler', 'sensor'], ['ctrl', 'Kontrol', 'sliders'],
-  ['safety', 'Güvenlik', 'shield'], ['access', 'Erişim', 'key'], ['maint', 'Bakım', 'warn']];
+  ['safety', 'Güvenlik', 'shield'], ['led', 'LED', 'bulb'], ['access', 'Erişim', 'key'], ['maint', 'Bakım', 'warn']];
+// WS2812B durum şeridi (SCADA ailesi ortak düzeni): ilk dört LED bütün cihazlarda aynıdır, sonrakiler cihaza özgüdür.
+// [anahtar öneki, başlık, durum adları, ipucu]; renk anahtarı <önek><0..2> = "#rrggbb" (lib/core/cc_ledstrip ile aynı)
+const LED_GROUPS = [
+  ['cls', 'LED 1 · Durum', ['Normal', 'Uyarı', 'Alarm'], 'Alarm yoksa sabit yanar; uyarı ve alarmda yanıp söner.'],
+  ['clw', 'LED 2 · Ağ', ['Bağlantı yok', 'Wi-Fi bağlı', 'AP kurulum'], 'AP: yalnız kurulum ağı açık, kayıtlı ağa bağlı değil.'],
+  ['clq', 'LED 3 · MQTT', ['Kesik', 'Bağlı', 'Tanımsız'], 'Tanımsız: broker adresi boş veya MQTT kapalı.'],
+  ['clm', 'LED 4 · mDNS', ['Yok', 'Hazır', 'Devre dışı'], 'Hazır: “.local” adı ağda yayımlanıyor.'],
+  ['clr', 'LED 5 · Isıtma', ['Kapalı', '1 kademe', '2 kademe'], 'Cihaza özgü: açık rezistans sayısı.'],
+  ['clf', 'LED 6 · Fan', ['Kapalı', 'Isıtıcı fanı', 'Havalandırma'], 'Cihaza özgü: havalandırma fanı ısıtıcı fanına baskındır.']];
+const PALETTE = [['#000000', 'Siyah (sönük)'], ['#ffffff', 'Beyaz'], ['#ff0000', 'Kırmızı'], ['#00ff00', 'Yeşil'], ['#0000ff', 'Mavi'],
+  ['#ffff00', 'Sarı'], ['#00ffff', 'Turkuaz'], ['#800080', 'Mor'], ['#ff8000', 'Turuncu'], ['#ff69b4', 'Pembe'], ['#bfff00', 'Lime'],
+  ['#008080', 'Teal'], ['#000080', 'Lacivert'], ['#ff00ff', 'Eflatun'], ['#808080', 'Gri'], ['#800000', 'Bordo']];
+const LED_NOTE = 'Şerit, cihazın bildirdiği durumlarla ve kayıtlı renklerle çizilir. WS2812B geri bildirim vermez; görünüm fiziksel şeridin çalıştığını kanıtlamaz.';
+const colorName = v => { const p = PALETTE.find(c => c[0] === String(v).toLowerCase()); return p ? p[1] : String(v).toLowerCase(); };
 
 builders.settings = sec => {
-  const form = h('form', {id: 'settings-form', novalidate: ''});
+  const forms = h('div', {hidden: true});
   const tablist = h('div', {class: 'tabs-v', role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Ayar bölümleri'});
   const panelsBox = h('div');
-  let baseline = {}, values = {}, saving = false;
-  const fields = {};        // ad → {el, input, def, sec}
+  let baseline = {}, values = {};
+  const saving = {};        // bölüm → kayıt sürüyor
+  const fields = {};        // ad → {wrap, input, type, o, sec, label}
+  const bars = {};          // bölüm → {bar, text, save, revert, label}
   SECTIONS.forEach(([id, label, ico]) => {
     const tab = h('button', {type: 'button', role: 'tab', id: 'tab-' + id, 'aria-controls': 'panel-' + id, 'aria-selected': 'false', tabindex: '-1'},
       icon(ico), h('span', {class: 'tab-label', text: label}), h('span', {class: 'tab-count', hidden: true, 'aria-label': '0 değişiklik'}));
     tablist.append(tab);
     const panel = h('div', {role: 'tabpanel', id: 'panel-' + id, 'aria-labelledby': 'tab-' + id, class: 'tabpanel', hidden: true});
     panelsBox.append(panel);
+    // Her bölüm kendi formudur: kayıt yalnız o bölümün alanlarını gönderir, başka bölümdeki geçersiz/erken alan onu engellemez
+    const form = h('form', {id: 'sf-' + id, novalidate: '', 'data-sec': id});
+    form.addEventListener('submit', e => { e.preventDefault(); saveSection(id); });
+    forms.append(form);
   });
-  const savebar = h('div', {class: 'savebar', id: 'savebar'}, h('p', {class: 'dirty-text', id: 'dirty-text', text: 'Kaydedilmemiş değişiklik yok'}),
-    h('div', {class: 'savebar-actions'},
-      h('button', {type: 'button', id: 'revert', 'data-icon': 'undo', disabled: ''}, 'Geri al'),
-      h('button', {type: 'submit', form: 'settings-form', id: 'save', class: 'primary', 'data-icon': 'save', 'data-text': '', disabled: ''}, 'Ayarları kaydet')));
-  sec.append(sectionHead('Cihaz ayarları'), form, h('div', {class: 'settings'}, tablist, h('div', null, panelsBox, savebar)));
+  sec.append(sectionHead('Cihaz ayarları'), forms, h('div', {class: 'settings'}, tablist, h('div', null, panelsBox)));
+
+  function savebar(id, label) {
+    const text = h('p', {class: 'dirty-text', id: 'dirty-text-' + id, text: 'Kaydedilmemiş değişiklik yok'});
+    const revert = h('button', {type: 'button', id: 'revert-' + id, 'data-icon': 'undo', disabled: ''}, 'Geri al');
+    const save = h('button', {type: 'submit', form: 'sf-' + id, id: 'save-' + id, class: 'primary', 'data-icon': 'save', 'data-text': '', disabled: ''}, label + ' ayarlarını kaydet');
+    revert.addEventListener('click', () => revertSection(id));
+    const bar = h('div', {class: 'savebar', id: 'savebar-' + id}, text, h('div', {class: 'savebar-actions'}, revert, save));
+    bars[id] = {bar, text, save, revert, label: label + ' ayarlarını kaydet'};
+    return bar;
+  }
 
   function field([name, label, type, o = {}], secId) {
-    let input;
-    const id = 'f-' + name;
-    if (type === 'checkbox') input = h('input', {type: 'checkbox', id, name, form: 'settings-form'});
-    else if (type === 'select') input = h('select', {id, name, form: 'settings-form'}, ...o.opts.map(([v, t]) => h('option', {value: v, text: t})));
-    else input = h('input', {id, name, form: 'settings-form', type: type === 'ip' ? 'text' : type,
+    let input, out = null;
+    const id = 'f-' + name, fid = 'sf-' + secId;
+    if (type === 'checkbox') input = h('input', {type: 'checkbox', id, name, form: fid});
+    else if (type === 'select') input = h('select', {id, name, form: fid}, ...o.opts.map(([v, t]) => h('option', {value: v, text: t})));
+    else if (type === 'range') {
+      input = h('input', {type: 'range', id, name, form: fid, min: o.min, max: o.max, step: o.step || 1});
+      out = h('output', {for: id, class: 'range-out num'});
+      input.addEventListener('input', () => { out.textContent = input.value + ' %'; });
+    } else input = h('input', {id, name, form: fid, type: type === 'ip' ? 'text' : type,
       inputmode: type === 'ip' || type === 'number' ? 'decimal' : null, pattern: type === 'ip' ? IPV4 : (o.pat || null),
       min: o.min, max: o.max, step: type === 'number' ? (o.step || 1) : null, maxlength: o.ml, minlength: o.minl,
       required: o.req ? '' : null, readonly: o.ro ? '' : null, autocomplete: type === 'password' ? 'new-password' : 'off'});
@@ -2220,19 +2266,130 @@ builders.settings = sec => {
     const hint = o.hint ? h('small', {class: 'field-hint', id: hintId, text: o.hint}) : null;
     const wrap = type === 'checkbox'
       ? h('div', {class: 'field full', 'data-name': name}, h('div', {class: 'field toggle'}, input, h('label', {for: id, text: label})), hint)
-      : h('div', {class: 'field', 'data-name': name}, h('label', {for: id, text: label}), input, hint);
-    fields[name] = {wrap, input, type, o, sec: secId, label};
+      : type === 'range'
+        ? h('div', {class: 'field range', 'data-name': name}, h('label', {for: id, text: label}), h('div', {class: 'range-row'}, input, out), hint)
+        : h('div', {class: 'field', 'data-name': name}, h('label', {for: id, text: label}), input, hint);
+    fields[name] = {wrap, input, type, o, sec: secId, label, out};
     return wrap;
   }
+
+  // ---- LED renk alanı: gizli değer + <details> palet (bir anda tek palet; seçimde, Escape'te ve dışarı dokunuşta kapanır)
+  function colorField(name, group, state, secId) {
+    const input = h('input', {type: 'hidden', id: 'f-' + name, name, form: 'sf-' + secId});
+    const dot = h('span', {class: 'dot big', 'aria-hidden': 'true'});
+    const cname = h('span', {class: 'swatch-name'});
+    const summary = h('summary', null, h('span', {class: 'led-state', text: state}), dot, cname);
+    const pal = h('div', {class: 'palette', role: 'radiogroup', 'aria-label': group + ' · ' + state + ' rengi'});
+    const wrap = h('details', {class: 'led-row', 'data-name': name}, summary, pal, input);
+    const paint = () => {
+      const v = input.value;
+      dot.style.background = v;
+      dot.classList.toggle('off', v === '#000000');
+      setText(cname, colorName(v));
+      summary.setAttribute('aria-label', group + ' · ' + state + ' · ' + colorName(v) + ' rengini değiştir');
+    };
+    const set = v => { if (input.value === v) return; input.value = v; paint(); input.dispatchEvent(new Event('input', {bubbles: true})); };
+    const close = () => { wrap.open = false; summary.focus(); };
+    let ptr = false;
+    pal.addEventListener('pointerdown', () => { ptr = true; });
+    // Palet açılmadan önce (summary tıklamasında, eşzamanlı) ve açılışta doldurulur; boş palet görünmez
+    const fill = () => {
+      pal.textContent = '';
+      const cur = input.value, base = String(baseline[name] || '');
+      const list = PALETTE.slice();
+      [base, cur].forEach(c => { if (c && !list.some(p => p[0] === c)) list.unshift([c, 'Mevcut renk (korunur)']); });
+      list.forEach(([v, t]) => {
+        const r = h('input', {type: 'radio', name: 'pal-' + name, value: v});
+        r.checked = v === cur;
+        const d = h('span', {class: 'dot', 'aria-hidden': 'true'});
+        d.style.background = v;
+        if (v === '#000000') d.classList.add('off');
+        const lab = h('label', {class: 'pal'}, r, d, h('span', {text: t}));
+        // Fare/dokunuş seçimi kapatır; ok tuşları yalnız rengi değiştirir, Enter/Boşluk kapatır
+        r.addEventListener('change', () => { set(v); if (ptr) close(); ptr = false; });
+        r.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); set(v); close(); } });
+        pal.append(lab);
+      });
+      const x = h('button', {type: 'button', class: 'pal-close'}, 'Kapat');
+      x.addEventListener('click', close);
+      pal.append(x);
+    };
+    summary.addEventListener('click', () => { if (!wrap.open) fill(); });
+    wrap.addEventListener('toggle', () => {
+      ptr = false;
+      if (!wrap.open) return;
+      $$('details.led-row[open]', sec).forEach(d => { if (d !== wrap) d.open = false; });
+      if (!pal.children.length) fill();
+      const chk = $('input:checked', pal) || $('input', pal);
+      if (chk) chk.focus();
+    });
+    fields[name] = {wrap, input, type: 'color', o: {}, sec: secId, label: group + ' · ' + state, paint};
+    return wrap;
+  }
+  sec.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const d = $('details.led-row[open]', sec);
+    if (d) { e.preventDefault(); d.open = false; $('summary', d).focus(); }
+  });
+  document.addEventListener('click', e => { $$('details.led-row[open]', sec).forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
+
+  // Aile düzeni: canlı şerit (4 sütun) → parlaklık → renk grupları (grup başına 3 durum sütunu)
+  function renderLed(p) {
+    const strip = h('div', {class: 'led-strip', id: 'led-live', role: 'list', 'aria-label': 'Şeritteki LED’lerin şu anki durumu'},
+      ...LED_GROUPS.map(([k, title], i) => h('div', {class: 'led-live', role: 'listitem', 'data-i': String(i)},
+        h('span', {class: 'dot big', 'aria-hidden': 'true'}),
+        h('span', {class: 'led-live-t'}, h('span', {class: 'led-live-n', text: title}), h('span', {class: 'led-live-st', text: '—'})))));
+    p.prepend(h('section', {class: 'panel'}, h('h3', {text: 'LED durumu (canlı)'}), strip, h('p', {class: 'field-hint', id: 'led-live-note', text: LED_NOTE})));
+    const grid = h('div', {class: 'led-groups'}, ...LED_GROUPS.map(([k, title, states, hint]) =>
+      h('div', {class: 'led-card', title: hint}, h('h4', {text: title}),
+        h('div', {class: 'led-cols'}, ...states.map((s, j) => colorField(k + j, title, s, 'led'))))));
+    p.append(h('section', {class: 'panel'}, h('h3', {text: 'LED renkleri'}),
+      h('p', {class: 'field-hint', text: 'Sıra bütün SCADA cihazlarında sabittir: LED 1 Durum, LED 2 Ağ, LED 3 MQTT, LED 4 mDNS; LED 5 ısıtma (açık rezistans sayısı), LED 6 fan bu cihaza özgüdür. Yalnız LED 1 uyarı ve alarmda yanıp söner.'}),
+      grid));
+  }
+  function updateLedLive(d) {
+    const box = $('#led-live');
+    if (!box || !d) return;
+    const st = Array.isArray(d.led_states) ? d.led_states : [];
+    $$('.led-live', box).forEach((el, i) => {
+      const s = st[i];
+      const g = LED_GROUPS[i];
+      const known = typeof s === 'number' && s >= 0 && s < 3;
+      const c = known ? String(baseline[g[0] + s] || '#000000') : '';
+      const dot = $('.dot', el);
+      dot.style.background = known ? c : '';
+      dot.classList.toggle('unknown', !known);   // bilinmiyor ≠ sönük (siyah)
+      dot.classList.toggle('blink', known && i === 0 && s > 0);
+      setText($('.led-live-st', el), known ? g[2][s] : 'Durum bilinmiyor');
+      el.setAttribute('aria-label', g[1] + ': ' + (known ? g[2][s] + ', ' + colorName(c) : 'durum bilinmiyor'));
+    });
+    setText($('#led-live-note'), d.led_ok === false ? 'LED sürücüsü başlatılamadı: şerit bağlantısını ve GPIO27’yi denetleyin. Aşağıdaki görünüm yalnız cihazın seçtiği durumdur.' : LED_NOTE);
+  }
+  function updateMqLive(d) {
+    const p = $('#mq-pill');
+    if (!p || !d) return;
+    const st = d.mqtt_status || 'DISABLED';
+    const map = {CONNECTED: ['ok', 'Bağlı'], CONNECTING: ['warn', 'Bağlanıyor'], BACKOFF: ['bad', 'Bağlantı yok'], AUTH_FAIL: ['bad', 'Kimlik reddedildi'], DISABLED: [null, 'Kapalı (broker tanımsız)']};
+    const [cls, txt] = map[st] || [null, st];
+    p.classList.remove('ok', 'bad', 'warn');
+    if (cls) p.classList.add(cls);
+    setText(p.lastChild, txt);
+    setText($('#mq-note'), d.mqtt_note || '—');
+    setText($('#mq-rec'), String(d.mqtt_reconnects ?? '—'));
+  }
+  pageUpdaters.settings = d => { updateLedLive(d); updateMqLive(d); updateSvc(d); };
+
   function valueOf(f) {
     if (f.type === 'checkbox') return f.input.checked;
-    if (f.type === 'number') return f.input.value === '' ? '' : Number(f.input.value);
+    if (f.type === 'number' || f.type === 'range') return f.input.value === '' ? '' : Number(f.input.value);
     return f.input.value;
   }
   function setValue(f, v) {
     if (f.type === 'checkbox') f.input.checked = !!v;
     else if (f.type === 'password') f.input.value = '';
+    else if (f.type === 'color') { f.input.value = String(v || '#000000').toLowerCase(); f.paint(); }
     else f.input.value = v === undefined || v === null ? '' : v;
+    if (f.out) f.out.textContent = f.input.value + ' %';
   }
   function applyDeps() {
     Object.values(fields).forEach(f => {
@@ -2244,7 +2401,7 @@ builders.settings = sec => {
       }
       if (f.o.off) {
         const c = fields[f.o.off];
-        if (c && c.input.checked) { f.input.value = ''; f.input.disabled = true; } else f.input.disabled = saving;
+        if (c && c.input.checked) { f.input.value = ''; f.input.disabled = true; } else f.input.disabled = !!saving[f.sec];
       }
     });
   }
@@ -2268,11 +2425,16 @@ builders.settings = sec => {
       b.hidden = !c;
       b.textContent = c;
       b.setAttribute('aria-label', c + ' değişiklik');
+      const sb = bars[id];
+      if (!sb) return;
+      const other = n - c;
+      if (!sb.bar.classList.contains('is-error') || !c)
+        setText(sb.text, (c ? c + ' alanda kaydedilmemiş değişiklik' : 'Kaydedilmemiş değişiklik yok') + (other ? ' · diğer bölümlerde ' + other : ''));
+      if (!c) sb.bar.classList.remove('is-error');
+      sb.bar.classList.toggle('is-dirty', c > 0);
+      sb.save.disabled = !c || !!saving[id];
+      sb.revert.disabled = !c || !!saving[id];
     });
-    setText($('#dirty-text'), n ? n + ' alanda kaydedilmemiş değişiklik' : 'Kaydedilmemiş değişiklik yok');
-    savebar.classList.toggle('is-dirty', n > 0);
-    $('#save').disabled = !n || saving;
-    $('#revert').disabled = !n || saving;
     return n;
   }
   function selectTab(id, focus) {
@@ -2298,21 +2460,32 @@ builders.settings = sec => {
     if (e.key === 'End') j = ids.length - 1;
     if (j >= 0) { e.preventDefault(); selectTab(ids[j], true); }
   });
-  sec.addEventListener('input', e => { if (e.target.form === form || e.target.getAttribute('form') === 'settings-form') { applyDeps(); refreshDirty(); } });
-  sec.addEventListener('change', e => { if (e.target.getAttribute('form') === 'settings-form') { applyDeps(); refreshDirty(); } });
+  const ours = t => (t.getAttribute('form') || '').startsWith('sf-');
+  sec.addEventListener('input', e => { if (ours(e.target)) { applyDeps(); refreshDirty(); } });
+  sec.addEventListener('change', e => { if (ours(e.target)) { applyDeps(); refreshDirty(); } });
   window.addEventListener('beforeunload', e => { if (built.settings && refreshDirty()) { e.preventDefault(); e.returnValue = ''; } });
 
   function render(d) {
     values = d;
-    SECTIONS.forEach(([id]) => {
+    SECTIONS.forEach(([id, label]) => {
       const p = $('#panel-' + id);
       p.textContent = '';
       (DEF[id] || []).forEach(([title, list]) => {
         const grid = h('div', {class: 'form-grid'}, ...list.map(fd => field(fd, id)));
         p.append(h('section', {class: 'panel'}, h('h3', {text: title}), grid));
       });
+      if (id === 'led') renderLed(p);
+      if (Object.values(fields).some(f => f.sec === id && !f.o.ro)) p.append(savebar(id, label));
     });
     // Güvenlik bölümü notu
+    // Canlı bağlantı durumu (/api/data): kayıt ≠ bağlantı; sonuç cihazın bildirdiği durumdur
+    $('#panel-mqtt').prepend(h('section', {class: 'panel'}, h('h3', {text: 'MQTT durumu (canlı)'}),
+      h('dl', {class: 'kv', id: 'mq-live'},
+        h('dt', {text: 'Durum'}), h('dd', null, h('span', {class: 'pill', id: 'mq-pill'}, h('i'), h('span', {text: '—'}))),
+        h('dt', {text: 'Ayrıntı'}), h('dd', {id: 'mq-note', class: 'mono', text: '—'}),
+        h('dt', {text: 'Topic tabanı'}), h('dd', {id: 'mq-base', class: 'mono', text: d.mqtt_topic_base || '—'}),
+        h('dt', {text: 'Yeniden bağlanma'}), h('dd', {id: 'mq-rec', class: 'num', text: '—'})),
+      h('p', {class: 'field-hint', text: 'Keşif kayıtları Home Assistant / MQTT Studio için homeassistant/… altında yayımlanır. Broker ayarı kaydedilince bağlantı yeni ayarlarla yeniden kurulur.'})));
     $('#panel-safety').prepend(h('div', {class: 'notice warn'}, icon('warn'),
       h('span', {text: 'Güvenlik limitleri yalnız bu yerel arayüzden ve yönetici rolüyle değiştirilir; MQTT’den yazılamaz. Yazılım korumaları termik kesici, sigorta ve RCD’nin yerine geçmez.'})));
     renderAccessExtras($('#panel-access'), d);
@@ -2322,25 +2495,32 @@ builders.settings = sec => {
     Object.entries(fields).forEach(([name, f]) => { baseline[name] = f.type === 'password' ? '' : valueOf(f); });
     applyDeps();
     refreshDirty();
+    updateLedLive(D);
+    updateMqLive(D);
     iconize(sec);
   }
-  $('#revert').addEventListener('click', () => {
-    Object.entries(fields).forEach(([name, f]) => { if (f.o.ui) f.input.checked = false; else if (f.type === 'password') f.input.value = ''; else setValue(f, baseline[name]); });
+  function revertSection(id) {
+    Object.entries(fields).forEach(([name, f]) => {
+      if (f.sec !== id) return;
+      if (f.o.ui) f.input.checked = false; else if (f.type === 'password') f.input.value = ''; else setValue(f, baseline[name]);
+    });
+    bars[id].bar.classList.remove('is-error');
     applyDeps(); refreshDirty(); toast('Değişiklikler geri alındı');
-  });
-  form.addEventListener('submit', async e => {
-    e.preventDefault();
-    // gizli sekmedeki ilk geçersiz alan
-    const bad = Object.values(fields).find(f => !f.input.disabled && !f.o.ro && !f.input.checkValidity());
+  }
+  async function saveSection(id) {
+    const sb = bars[id];
+    if (!sb || saving[id] || sb.save.disabled) return;
+    const own = Object.entries(fields).filter(([, f]) => f.sec === id);
+    // yalnız bu bölümün ilk geçersiz alanı
+    const bad = own.map(([, f]) => f).find(f => !f.input.disabled && !f.o.ro && !f.input.checkValidity());
     if (bad) {
-      selectTab(bad.sec);
       bad.input.reportValidity();
       bad.input.focus();
       toast('Kaydedilmedi: “' + bad.label + '” alanını düzeltin', true);
       return;
     }
     const body = {};
-    Object.entries(fields).forEach(([name, f]) => {
+    own.forEach(([name, f]) => {
       if (f.o.ro || f.o.ui || f.input.disabled && !(f.o.off && fields[f.o.off].input.checked)) return;
       if (f.type === 'password') {
         if (f.o.off && fields[f.o.off].input.checked) body[name] = '';
@@ -2349,35 +2529,74 @@ builders.settings = sec => {
       }
       body[name] = valueOf(f);
     });
-    saving = true;
-    const save = $('#save');
-    save.setAttribute('aria-busy', 'true');
-    save.lastChild.textContent = 'Kaydediliyor…';
+    saving[id] = true;
+    sb.save.setAttribute('aria-busy', 'true');
+    sb.save.lastChild.textContent = 'Kaydediliyor…';
     refreshDirty();
+    let ok = false;
     try {
       const r = await api('/api/settings', body);
       Object.entries(body).forEach(([k, v]) => { if (fields[k] && fields[k].type !== 'password') baseline[k] = v; values[k] = v; });
-      Object.values(fields).forEach(f => { if (f.type === 'password') f.input.value = ''; if (f.o.ui) f.input.checked = false; });
-      savebar.classList.remove('is-error');
+      own.forEach(([, f]) => { if (f.type === 'password') f.input.value = ''; if (f.o.ui) f.input.checked = false; });
+      sb.bar.classList.remove('is-error');
+      ok = true;
+      // Görünen ad üst başlıkta ve sekme başlığında hemen güncellenir (sonraki /api/data da aynı değeri getirir)
+      if (D && 'adN' in body) { D.device_name = body.adN; renderShell(); }
+      if (id === 'led') updateLedLive(D);
       toast(r && r.message || 'Kaydedildi');
     } catch (err) {
-      savebar.classList.add('is-error');
-      setText($('#dirty-text'), 'Kaydedilemedi · değişiklikler formda duruyor');
+      sb.bar.classList.add('is-error');
+      setText(sb.text, 'Kaydedilemedi · değişiklikler formda duruyor');
       toast(err.message, true);
       const fld = err.body && err.body.field && fields[err.body.field];
       if (fld) { selectTab(fld.sec); fld.input.focus(); }
     }
-    saving = false;
-    save.setAttribute('aria-busy', 'false');
-    save.lastChild.textContent = 'Ayarları kaydet';
+    saving[id] = false;
+    sb.save.setAttribute('aria-busy', 'false');
+    sb.save.lastChild.textContent = sb.label;
     applyDeps();
-    if (!savebar.classList.contains('is-error')) refreshDirty();
-  });
+    if (ok) refreshDirty();
+    else { sb.save.disabled = false; sb.revert.disabled = false; }
+  }
 
   // ---- Erişim: ayrı formlar
   function renderAccessExtras(p, d) {
-    const ota = h('p', {class: 'field-hint'}, 'OTA parolası durumu: ', h('b', {id: 'ota-state', text: d.otaPasswordSet ? 'Tanımlı · OTA açık' : 'Tanımlı değil · OTA kapalı'}));
-    p.children[1] && p.children[1].append(ota);
+    // OTA parolası: ayrı form (POST /api/ota/password). Parolasız OTA açıktır ama kalıcı uyarıdır.
+    let otaSet = !!d.otaPasswordSet;
+    const otaState = h('b', {id: 'ota-state'});
+    const otaWarn = h('div', {class: 'notice warn', id: 'ota-warn'}, icon('warn'),
+      h('span', {text: 'OTA parolasız açık: aynı ağdaki herkes bu cihaza firmware yükleyebilir. Parola belirlemeniz önerilir.'}));
+    const otaMsg = h('div', {class: 'cmd-msg'});
+    const oa = h('input', {type: 'password', id: 'ota-new', minlength: '8', maxlength: '64', autocomplete: 'new-password'});
+    const ob = h('input', {type: 'password', id: 'ota-new2', minlength: '8', maxlength: '64', autocomplete: 'new-password'});
+    const otaSave = h('button', {type: 'submit', class: 'primary', 'data-icon': 'key', 'data-text': ''}, 'OTA parolasını kaydet');
+    const otaClear = h('button', {type: 'button', class: 'danger', id: 'ota-clear', 'data-icon': 'unlock', 'data-text': ''}, 'Parolayı kaldır');
+    const paintOta = () => {
+      setText(otaState, otaSet ? 'Tanımlı · yüklemede parola (--auth) gerekir' : 'Tanımlı değil · OTA parolasız açık');
+      otaState.className = otaSet ? '' : 'warn-text';
+      otaWarn.hidden = otaSet;
+      otaClear.disabled = !otaSet;
+    };
+    const otaDone = (set, r) => {
+      otaSet = set; paintOta(); oa.value = ''; ob.value = ''; showMsg({msg: otaMsg}, null, '');
+      if (D) { D.ota_password_set = set; renderShell(); }
+      toast(r && r.message || 'Kaydedildi');
+    };
+    const otaForm = h('form', {class: 'form-grid', novalidate: ''},
+      h('div', {class: 'field'}, h('label', {for: 'ota-new', text: 'Yeni OTA parolası (8–64)'}), oa),
+      h('div', {class: 'field'}, h('label', {for: 'ota-new2', text: 'Yeni OTA parolası tekrar'}), ob),
+      h('div', {class: 'full btn-row'}, otaSave, otaClear), h('div', {class: 'full'}, otaMsg));
+    otaForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (oa.value.length < 8 || oa.value.length > 64) { showMsg({msg: otaMsg}, 'critical', 'OTA parolası 8–64 karakter olmalı.'); oa.focus(); return; }
+      if (oa.value !== ob.value) { showMsg({msg: otaMsg}, 'critical', 'Parolalar eşleşmiyor.'); ob.focus(); return; }
+      try { otaDone(true, await api('/api/ota/password', {password: oa.value})); } catch (err) { showMsg({msg: otaMsg}, 'critical', err.message); }
+    });
+    otaClear.addEventListener('click', async () => {
+      if (!(await confirmDlg('OTA parolası', 'OTA parolası kaldırılsın mı? OTA parolasız açık kalır; aynı ağdaki herkes firmware yükleyebilir.', 'Parolayı kaldır', true))) return;
+      try { otaDone(false, await api('/api/ota/password', {password: ''})); } catch (err) { showMsg({msg: otaMsg}, 'critical', err.message); }
+    });
+    paintOta();
     const pw = [['pw-old', 'Mevcut parola', 'current-password'], ['pw-new', 'Yeni parola', 'new-password'], ['pw-new2', 'Yeni parola tekrar', 'new-password']]
       .map(([id, l, ac]) => h('div', {class: 'field'}, h('label', {for: id, text: l}), h('input', {type: 'password', id, maxlength: '128', autocomplete: ac})));
     const pwMsg = h('div', {class: 'cmd-msg'});
@@ -2401,73 +2620,163 @@ builders.settings = sec => {
     pinForm.addEventListener('submit', async e => {
       e.preventDefault();
       if (!pin.checkValidity() || !pin.value) { pin.reportValidity(); return; }
-      try { await api('/api/service/pin', {pin: pin.value}); pin.value = ''; toast('Servis PIN’i kaydedildi'); } catch (err) { showMsg({msg: pinMsg}, 'critical', err.message); }
+      try { await api('/api/service/pin', {pin: pin.value}); pin.value = ''; svcPinSet = true; svcErr = ''; updateSvc(D); toast('Servis PIN’i kaydedildi'); } catch (err) { showMsg({msg: pinMsg}, 'critical', err.message); }
     });
-    p.append(h('section', {class: 'panel'}, h('h3', {text: 'Web parolası'}),
-      h('p', {class: 'field-hint', text: 'Web parolası OTA parolasından ve servis PIN’inden bağımsızdır. Bağlantı şifrelenmez (yerel HTTP).'}), pwForm),
+    const webState = h('p', {class: 'field-hint'}, 'Durum: ', h('b', {id: 'web-pw-state', class: d.passwordSet ? '' : 'warn-text', text: d.passwordSet ? 'Tanımlı · giriş gerekli' : 'Tanımlı değil · arayüz herkese açık'}));
+    p.append(h('section', {class: 'panel'}, h('h3', {text: 'OTA parolası'}), otaWarn,
+      h('p', {class: 'field-hint'}, 'Durum: ', otaState),
+      h('p', {class: 'field-hint', text: 'Parola tanımlanır tanımlanmaz geçerli olur (yeniden başlatma gerekmez); yalnız özeti saklanır. Yükleme aracında --auth=<parola> kullanın. Her durumda yüklemeden önce ısıtma durdurulup soğutma tamamlanır.'}), otaForm),
+      h('section', {class: 'panel'}, h('h3', {text: 'Web parolası'}),
+      webState,
+      h('p', {class: 'field-hint', text: 'Web parolası OTA parolasından ve servis PIN’inden bağımsızdır. Parola tanımlanınca misafir okuma dışında her işlem oturum ister; unutulursa cihazdaki BOOT düğmesi 10 s basılı tutulur (Wi-Fi ve web parolası silinir, ayarlar korunur). Bağlantı şifrelenmez (yerel HTTP).'}), pwForm),
       h('section', {class: 'panel'}, h('h3', {text: 'Servis PIN’i'}), pinForm));
   }
 
   // ---- Bakım: kırmızı alan
   function renderMaint(p, d) {
-    const act = (label, ico, danger, title, text, path, body, okText) => {
-      const b = h('button', {type: 'button', class: danger ? 'danger' : '', 'data-icon': ico, 'data-text': ''}, label);
+    // Risk kademesi (skill G.11): '' nötr · 'warn' bağlantı/veri etkisi · 'danger' yıkıcı → iki aşamalı onay (yazılı kelime)
+    const act = (label, ico, tier, title, text, path, final) => {
+      const b = h('button', {type: 'button', class: tier || null, 'data-icon': ico, 'data-text': ''}, label);
       b.addEventListener('click', async () => {
-        if (!(await confirmDlg(title, text, okText || label, danger))) return;
-        try { const r = await api(path, body || {}); toast(r && r.message || 'İstek alındı'); } catch (err) { toast(err.message, true); }
+        if (!(await confirmDlg(title, text, label, tier || false))) return;
+        if (final && !(await typedConfirm(title + ' · son onay', final, 'SIFIRLA', 'Evet, ' + label.toLowerCase()))) return;
+        b.setAttribute('aria-busy', 'true');
+        try { const r = await api(path, {}); toast(r && r.message || 'İstek alındı'); } catch (err) { toast(err.message, true); }
+        b.removeAttribute('aria-busy');
       });
       return b;
     };
+    // Yıkıcı işlemin 2. aşaması: kelime yazılmadan onay düğmesi disabled; Vazgeç istek göndermez
+    const typedConfirm = (title, text, word, okText) => {
+      const inp = h('input', {type: 'text', id: 'dlg-word', autocomplete: 'off', spellcheck: 'false', 'aria-describedby': 'dlg-word-hint'});
+      const body = h('div', null, h('p', {text}), h('div', {class: 'field'}, h('label', {for: 'dlg-word', text: 'Onay için “' + word + '” yazın'}), inp,
+        h('small', {class: 'field-hint', id: 'dlg-word-hint', text: 'Büyük/küçük harf fark etmez.'})));
+      const pr = confirmDlg(title, body, okText, true);
+      const ok = $('#dlg-ok');
+      const norm = v => v.trim().toLocaleUpperCase('tr').replace(/İ/g, 'I');
+      const chk = () => { ok.disabled = norm(inp.value) !== norm(word); };
+      inp.addEventListener('input', chk);
+      chk();
+      setTimeout(() => inp.focus(), 0);
+      return pr;
+    };
     const svcPin = h('input', {type: 'password', id: 'svc-enter-pin', inputmode: 'numeric', maxlength: '8', autocomplete: 'off'});
-    const svcBtn = h('button', {type: 'button', 'data-icon': 'wrench', 'data-text': ''}, 'Servis moduna gir');
+    const svcBtn = h('button', {type: 'button', id: 'svc-btn', 'data-icon': 'wrench', 'data-text': ''}, 'Servis moduna gir');
+    const svcState = h('small', {class: 'svc-state', id: 'svc-state', role: 'status'});
+    svcPin.setAttribute('aria-describedby', 'svc-pin-hint');
+    svcErr = '';
+    svcPinSet = !!d.servicePinSet;
     svcBtn.addEventListener('click', async () => {
       const on = D && D.controller_state === 'SERVICE';
-      if (!on && !(await confirmDlg('Servis modu', 'Isıtma talebi sıfırlanır ve soğutma tamamlandıktan sonra çıkış testi izni verilir. Donma koruması servis süresince devre dışıdır. Devam edilsin mi?', 'Servis moduna gir', true))) return;
-      try { await api(on ? '/api/service/exit' : '/api/service/enter', {pin: svcPin.value}); svcPin.value = ''; toast(on ? 'Servis modundan çıkıldı' : 'Servis modu etkin'); } catch (err) { toast(err.message, true); }
+      if (!on && svcPinSet && !svcPin.value) { svcErr = 'Servis PIN’ini girin.'; updateSvc(D); svcPin.focus(); return; }
+      if (!on && !(await confirmDlg('Servis modu', 'Otomatik kontrol ve programlar durur, MQTT komutları reddedilir; çıkış testleri Çıkışlar sayfasında açılır. Donma koruması servis süresince devre dışıdır. Isıtma veya soğutma sürüyorsa cihaz girişi reddeder. Devam edilsin mi?', 'Servis moduna gir', 'warn'))) return;
+      svcBtn.setAttribute('aria-busy', 'true');
+      try { await api(on ? '/api/service/exit' : '/api/service/enter', {pin: svcPin.value}); svcPin.value = ''; svcErr = ''; toast(on ? 'Servis modundan çıkıldı' : 'Servis modu etkin'); }
+      catch (err) { svcErr = err.message; }
+      svcBtn.removeAttribute('aria-busy');
+      updateSvc(D);
     });
     const cnt = h('select', {id: 'cnt-sel'}, ...[['all', 'Tüm sayaçlar'], ['r1', 'R1'], ['r2', 'R2'], ['heater_fan', 'Isıtıcı fanı'], ['ventilation_fan', 'Havalandırma fanı']].map(([v, t]) => h('option', {value: v, text: t})));
-    const cntBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'timer', 'data-text': ''}, 'Sayaçları sıfırla');
+    const cntBtn = h('button', {type: 'button', class: 'warn', 'data-icon': 'timer', 'data-text': ''}, 'Sayaçları sıfırla');
+    cnt.setAttribute('aria-label', 'Sıfırlanacak sayaç');
     cntBtn.addEventListener('click', async () => {
-      if (!(await confirmDlg('Sayaç sıfırlama', (cnt.value === 'all' ? 'Bütün çıkışların' : cnt.options[cnt.selectedIndex].text + ' çıkışının') + ' çalışma saati ve anahtarlama sayacı sıfırlanacak. Önceki değer olay günlüğüne yazılır. Çıkışlar etkilenmez.', 'Sıfırla', true))) return;
+      if (!(await confirmDlg('Sayaç sıfırlama', (cnt.value === 'all' ? 'Bütün çıkışların' : cnt.options[cnt.selectedIndex].text + ' çıkışının') + ' çalışma saati ve anahtarlama sayacı sıfırlanacak. Önceki değer olay günlüğüne yazılır. Çıkışlar etkilenmez.', 'Sıfırla', 'warn'))) return;
       try { await api('/api/service/reset-counters', {out: cnt.value}); toast('Sayaçlar sıfırlandı'); } catch (err) { toast(err.message, true); }
     });
     const curSsid = h('dd', {id: 'cur-ssid', class: 'mono'}, d.ssid || 'Tanımlı değil (AP kurulum modu)');
     const wBtn = h('button', {type: 'button', 'data-icon': 'wifi', 'data-text': ''}, 'Ağ tara ve değiştir');
     wBtn.addEventListener('click', openWifiDialog);
     const wResetOut = h('div', {class: 'cmd-msg', id: 'wreset-out'});
-    const wReset = h('button', {type: 'button', class: 'danger', 'data-icon': 'wifioff', 'data-text': ''}, 'Wi-Fi bilgilerini sil');
+    const wReset = h('button', {type: 'button', class: 'warn', 'data-icon': 'wifioff', 'data-text': ''}, 'Wi-Fi bilgilerini sil');
     wReset.addEventListener('click', () => resetWifiFlow(wReset, wResetOut));
     const otaFile = h('input', {type: 'file', id: 'ota-file', accept: '.bin'});
     const otaPw = h('input', {type: 'password', id: 'ota-pw', maxlength: '64', autocomplete: 'off'});
-    const otaBtn = h('button', {type: 'button', class: 'danger', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
+    const otaBtn = h('button', {type: 'button', class: 'warn', 'data-icon': 'upload', 'data-text': ''}, 'Firmware yükle');
+    const fileInfo = h('small', {class: 'file-info', id: 'ota-file-info', text: 'Dosya seçilmedi.'});
+    otaFile.setAttribute('aria-describedby', 'ota-file-info');
+    otaFile.addEventListener('change', () => { const f = otaFile.files[0]; setText(fileInfo, f ? f.name + ' · ' + (f.size / 1024).toFixed(0) + ' KB' : 'Dosya seçilmedi.'); });
+    const otaProg = h('progress', {id: 'ota-prog', max: '100', value: '0', hidden: true});
+    const otaOut = h('div', {class: 'cmd-msg', id: 'ota-out', role: 'status'});
+    // İki adım: (1) hazırlık — cihaz ısıtmayı durdurur, soğutma bitene kadar ready=false; (2) imaj ham gövde olarak
+    // parça parça flash'a yazılır. Yanıt alınamazsa sonuç belirsizdir: sayfa yeniden bağlanınca sürüm denetlenir.
     otaBtn.addEventListener('click', async () => {
       if (!otaFile.files.length) { toast('Önce .bin dosyası seçin', true); return; }
-      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, soğutma tamamlanır, sonra imaj yazılır. Yeni imaj öz testi geçemezse önceki sürüme dönülür. Devam edilsin mi?', 'Güncellemeyi başlat', true))) return;
-      try { const r = await api('/api/ota/begin', {password: otaPw.value, size: otaFile.files[0].size}); toast(r.message || 'Güncelleme hazırlanıyor'); } catch (err) { toast(err.message, true); }
+      const file = otaFile.files[0];
+      if (!(await confirmDlg('Firmware güncelleme', 'Rezistanslar kapatılır, fan soğutması tamamlanır, sonra imaj yazılır. İmaj doğrulanamazsa etkinleştirilmez ve mevcut sürüm çalışmaya devam eder. Devam edilsin mi?', 'Güncellemeyi başlat', 'warn'))) return;
+      otaBtn.disabled = true;
+      otaProg.hidden = true;
+      try {
+        for (let i = 0; ; i++) {
+          const r = await api('/api/ota/begin', {password: otaPw.value, size: file.size});
+          showMsg({msg: otaOut}, null, r.message);
+          if (r.ready) break;
+          if (i > 450) throw new Error('Hazırlık 15 dakikada tamamlanmadı; güncelleme iptal edildi.');
+          await new Promise(res => setTimeout(res, 2000));
+        }
+        otaProg.hidden = false;
+        const msg = await new Promise((res, rej) => {
+          const x = new XMLHttpRequest();
+          x.open('POST', '/api/ota');
+          x.setRequestHeader('X-SCADA', '1');
+          x.setRequestHeader('X-OTA-Password', otaPw.value);
+          x.setRequestHeader('Content-Type', 'application/octet-stream');
+          x.upload.onprogress = e => { if (e.lengthComputable) { otaProg.value = Math.round(100 * e.loaded / e.total); showMsg({msg: otaOut}, null, 'Yükleniyor… %' + otaProg.value); } };
+          x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch (e) { /* */ } (x.status === 200 ? res : rej)(new Error((j && j.message) || ('HTTP ' + x.status))); };
+          x.onerror = () => rej(new Error('Yanıt alınamadı. Cihaz yeniden başlıyor olabilir; sayfa yeniden bağlanınca sürümü denetleyin.'));
+          x.send(file);
+        });
+        showMsg({msg: otaOut}, null, msg.message);
+        toast(msg.message);
+      } catch (err) { showMsg({msg: otaOut}, 'critical', err.message); toast(err.message, true); }
+      otaBtn.disabled = false;
     });
+    const testMax = Number(d.service_test_max_s) || 120;
     p.append(h('section', {class: 'panel red-zone', 'aria-labelledby': 'rz-h'},
-      h('h3', {id: 'rz-h', text: '⚠ Kırmızı alan'}),
+      h('h3', {id: 'rz-h'}, icon('warn'), h('span', {text: 'Kırmızı alan'})),
       h('h4', {class: 'group-heading', text: 'Servis modu'}),
       h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'svc-enter-pin', text: 'Servis PIN’i'}), svcPin,
-        h('small', {class: 'field-hint', text: 'Çıkış testleri Çıkışlar sayfasında açılır: tek seferde tek rezistans, en çok 120 s, interlock’lar etkin.'})),
-        h('div', {class: 'field'}, h('span', {class: 'lbl', text: 'İşlem'}), svcBtn)),
+        h('small', {class: 'field-hint', id: 'svc-pin-hint', text: 'Çıkış testleri Çıkışlar sayfasında açılır: tek seferde tek çıkış, en çok ' + testMax + ' s (Ayarlar › Güvenlik); OTA, arıza ve interlock kilitleri etkindir. Süre dolunca servis modundan kendiliğinden çıkılır.'})),
+        h('div', {class: 'field'}, h('span', {class: 'lbl', text: 'İşlem'}), svcBtn, svcState)),
       h('h4', {class: 'group-heading', text: 'Kablosuz bağlantıyı değiştir'}),
       h('dl', {class: 'kv'}, h('dt', {text: 'Kayıtlı ağ'}), curSsid, h('dt', {text: 'Parola'}), h('dd', {text: d.passSet ? 'Kayıtlı' : 'Yok (açık ağ)'})),
       h('div', {class: 'btn-row'}, wBtn),
       h('p', {class: 'field-hint', text: 'Yeni ağ seçildiğinde cihaz yeniden başlamadan geçiş yapar ve bu sayfayla bağlantı kesilir. Bağlanamazsa 20–40 sn sonra kurulum ağı açılır ve kayıtlı ağ 5 dakikada bir yeniden denenir.'}),
       h('h4', {class: 'group-heading', text: 'Firmware'}),
-      h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile),
-        h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw),
-        h('div', {class: 'full btn-row'}, otaBtn)),
+      h('div', {class: 'form-grid'}, h('div', {class: 'field'}, h('label', {for: 'ota-file', text: 'İmaj dosyası'}), otaFile, fileInfo),
+        h('div', {class: 'field'}, h('label', {for: 'ota-pw', text: 'OTA parolası'}), otaPw, h('small', {class: 'field-hint', text: 'Parola tanımlı değilse boş bırakın.'})),
+        h('div', {class: 'full btn-row'}, otaBtn, otaProg), h('div', {class: 'full'}, otaOut)),
       h('h4', {class: 'group-heading', text: 'Sayaçlar ve cihaz'}),
       h('div', {class: 'btn-row'}, cnt, cntBtn),
       h('div', {class: 'btn-row'},
-        act('Yeniden başlat', 'reboot', false, 'Yeniden başlatma', 'Rezistanslar kapatılıp soğutma tamamlandıktan sonra cihaz yeniden başlatılsın mı?', '/api/reboot'),
+        act('Yeniden başlat', 'reboot', '', 'Yeniden başlatma', 'Cihaz yeniden başlatılsın mı? Isıtma veya fan soğutması sürüyorsa cihaz isteği reddeder; önce modu KAPALI yapıp soğutmanın bitmesini bekleyin. Ayarlar korunur, sayfa 20–40 sn sonra yeniden bağlanır.', '/api/reboot'),
         wReset,
-        act('Fabrika ayarlarına dön', 'factory', true, 'Fabrika ayarları', 'Ağ, parola, ayarlar, kilitli olmayan alarmlar ve sayaçlar silinecek; güvenlik limitleri varsayılana döner. Fabrika ayarlarına dönülsün mü?', '/api/factory-reset')),
+        act('Fabrika ayarlarına dön', 'factory', 'danger', 'Fabrika ayarları', 'Silinir: Wi-Fi/ağ ayarları ve OTA parolası, MQTT, web parolası ve servis PIN’i, cihaz ayarları, programlar, sayaçlar, olay kaydı ve LED renkleri; güvenlik limitleri varsayılana döner. Kilitli alarmlar korunur. Isıtma veya soğutma sürüyorsa cihaz isteği reddeder. Devam edilsin mi?', '/api/factory-reset',
+          'Bu işlem geri alınamaz. Cihaz kurulum ağı (AP) ile yeniden başlar ve yeniden kurulması gerekir.')),
       wResetOut,
       h('p', {class: 'field-hint', text: 'Üç işlem ayrıdır: yeniden başlatma yalnız cihazı yeniden açar; Wi-Fi silme yalnız kablosuz bilgileri siler; fabrika ayarları bütün ayarları siler. Bağlantı sorununda önce Wi-Fi ağını değiştirin.'}),
       h('p', {class: 'field-hint', text: 'Yeniden başlatmada rezistanslar donanım pull-down’ları ile kapalı kalır; mod ve ayarlar korunur.'})));
+    updateSvc(D);
+  }
+  // Servis durumu: cihazın bildirdiği durum (/api/data.controller_state, service_remaining_s) + son giriş hatası
+  let svcErr = '', svcPinSet = true;
+  function updateSvc(dd) {
+    const st = $('#svc-state'), b = $('#svc-btn');
+    if (!st || !b) return;
+    const on = !!(dd && dd.controller_state === 'SERVICE');
+    const lbl = on ? 'Servis modundan çık' : 'Servis moduna gir';
+    const tn = [...b.childNodes].reverse().find(n => n.nodeType === 3);
+    if (tn) { if (tn.textContent !== lbl) tn.textContent = lbl; } else if (b.textContent !== lbl) b.textContent = lbl;
+    const noPin = !on && !svcPinSet;
+    b.disabled = noPin;
+    const pinIn = $('#svc-enter-pin');
+    if (pinIn) pinIn.disabled = noPin || on;
+    let txt, cls;
+    if (on) { txt = 'Servis modu etkin · kalan ' + fmt.dur(dd.service_remaining_s); cls = 'warn'; }
+    else if (svcErr) { txt = svcErr; cls = 'crit'; }
+    else if (!svcPinSet) { txt = 'Servis PIN’i tanımlı değil (Ayarlar › Erişim).'; cls = ''; }
+    else { txt = 'PIN tanımlı · servis modu kapalı.'; cls = ''; }
+    setText(st, txt);
+    st.className = 'svc-state' + (cls ? ' ' + cls : '');
   }
 
   async function load() {

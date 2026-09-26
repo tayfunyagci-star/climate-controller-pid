@@ -107,12 +107,16 @@ builders.login = sec => {
   f.addEventListener('submit', async e => {
     e.preventDefault();
     if (!u.value) { u.reportValidity(); return; }
-    try { const r = await api('/api/login', {user: u.value, password: p.value, remember: rem.checked}); p.value = ''; toast(r.message || 'Giriş yapıldı'); refreshSession(); }
+    try { const r = await api('/api/login', {user: u.value, password: p.value, remember: rem.checked}); p.value = ''; toast(r.message || 'Giriş yapıldı'); refreshSession(); go('overview', true); }
     catch (err) { showMsg({msg}, 'critical', err.message); }
   });
   $('#lg-out', f).addEventListener('click', async () => { try { await api('/api/logout', {}); toast('Çıkış yapıldı'); refreshSession(); } catch (e) { toast(e.message, true); } });
   async function refreshSession() {
-    try { const s = await api('/api/session'); setText($('#lg-state'), s.user ? 'Oturum: ' + s.user + ' · rol ' + s.role + ' · ' + s.expires : 'Oturum açık değil'); } catch (e) { /* */ }
+    try {
+      const s = await api('/api/session');
+      setText($('#lg-state'), s.password_set === false ? 'Web parolası tanımlı değil: giriş gerekmiyor (Ayarlar › Erişim’den parola belirleyin).'
+        : s.user ? 'Oturum: ' + s.user + ' · rol ' + s.role + ' · ' + s.expires : 'Oturum açık değil');
+    } catch (e) { /* */ }
   }
   sec.append(sectionHead('Oturum'), h('section', {class: 'panel'}, h('h3', {text: 'Giriş'}), h('p', {class: 'dim', id: 'lg-state'}, '—'), f,
     h('details', null, h('summary', {text: 'Parolamı unuttum'}), h('p', {class: 'field-hint', text: 'Kurtarma sorusu tanımlıysa cevapla kısa ömürlü bilet alınır ve yalnız web parolası değiştirilir. Tanımlı değilse cihazdaki servis düğmesi 10 s basılı tutularak web parolası silinir; ayarlar ve güvenlik limitleri korunur.'}))),

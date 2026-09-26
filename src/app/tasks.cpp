@@ -9,6 +9,7 @@
 #include "boot_state.h"
 #include "hal_dht22.h"
 #include "hal_outputs.h"
+#include "mqtt_client.h"
 #include "net_manager.h"
 
 namespace app {
@@ -139,10 +140,12 @@ void controlTask(void*) {
     const bool cv = net::clockValid();
     const int64_t ep = net::epochUtc();
     const bool wcfg = net::wifiConfigured(), wok = net::wifiOk();
+    const mq::Status mqs = mq::status();
+    const bool mqtt_cfg_on = mqs.state != mq::State::Disabled, mqtt_ok = mqs.state == mq::State::Connected;
     if (xSemaphoreTake(g_mtx, pdMS_TO_TICKS(500)) == pdTRUE) {
       const int64_t t0 = esp_timer_get_time();
       g_core->setClock(cv, ep);
-      g_core->setNetStatus(wcfg, wok, false, false);  // MQTT F5
+      g_core->setNetStatus(wcfg, wok, mqtt_cfg_on, mqtt_ok);   // MQTT_OFFLINE: yapılandırılmış ama bağlı değil
       g_core->controlStep(dt);
       period = g_core->controlPeriodMs();
       noteTime(T_CTL, t0);
@@ -191,9 +194,13 @@ void sensorTask(void*) {
 
 }  // namespace
 
-void tasksStart(cc::ClimateCore& core) {
+void coreAttach(cc::ClimateCore& core) {
   g_core = &core;
-  g_mtx = xSemaphoreCreateMutex();  // öncelik mirası
+  if (!g_mtx) g_mtx = xSemaphoreCreateMutex();  // öncelik mirası
+}
+
+void tasksStart(cc::ClimateCore& core) {
+  coreAttach(core);
   const uint32_t now = millis();
   for (auto& h : g_hb) h.store(now);
   for (auto& m : g_max_us) m.store(0);
@@ -208,7 +215,7 @@ void tasksStart(cc::ClimateCore& core) {
   xTaskCreatePinnedToCore(sensorTask, "sensor", 4096, nullptr, 6, &g_task[T_SEN], 1);
 }
 
-bool coreLock(uint32_t timeout_ms) { return xSemaphoreTake(g_mtx, pdMS_TO_TICKS(timeout_ms)) == pdTRUE; }
+bool coreLock(uint32_t timeout_ms) { return g_mtx && xSemaphoreTake(g_mtx, pdMS_TO_TICKS(timeout_ms)) == pdTRUE; }
 void coreUnlock() { xSemaphoreGive(g_mtx); }
 cc::ClimateCore& core() { return *g_core; }
 

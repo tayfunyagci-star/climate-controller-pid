@@ -179,6 +179,14 @@ class ClimateCore {
   uint32_t uptimeMs() const { return up_ms_; }
   bool guardViolationSeen() const { return guard_violation_; }
   const OutputGuard& guard() const { return guard_; }
+  // F3 kalıcı depo geri yüklemesi (boot'ta, görevler başlamadan; doğrulama çağıranda / burada)
+  void restoreCounters(uint8_t o, uint32_t sw, uint64_t on_ms) { guard_.setCounters(o, sw, on_ms); }
+  void restoreEventSeq(uint32_t last_seq) { if (last_seq > ev_.lastSeq()) ev_.setSeqBase(last_seq); }
+  bool restorePrograms(const Program* list, uint8_t n, bool enabled);
+  // Sayaç sıfırlama (çalışma saati + anahtarlama): çıkışlar etkilenmez, önceki değer olay günlüğüne
+  CmdReply resetCounters(uint8_t mask, CmdSource src);
+  uint32_t serviceRemainingS() const { return sys_.serviceRemainingMs((uint32_t)cfg_.service_timeout_min * 60000u) / 1000u; }
+
   bool serviceTestOn(uint8_t o) const { return o < OUT_COUNT && svc_test_[o]; }
   // Platform olayları (ağ, OTA) çekirdek olay halkasına yazılır; proses durumunu değiştirmez
   void noteEvent(Severity s, EvSrc src, EvCode code, float val = kNaN, CmdSource actor = CmdSource::SYSTEM) {

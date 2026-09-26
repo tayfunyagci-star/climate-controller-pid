@@ -32,7 +32,7 @@
 | D-14 | `remote_config_enabled`, servis kanalı, `pid_remote_tuning` varsayılan kapalı | CONFIGURATION_MODEL |
 | D-15 | Güç dönüşünde mod persist (AUTO) | SYSTEM_ARCHITECTURE §5 |
 | D-16 | Kilitli alarmlar reboot'ta korunur | ALARM_AND_EVENTS §3 |
-| D-17 | Parolasız OTA yok | CONFIGURATION_MODEL §2.10 |
+| D-17 | ~~Parolasız OTA yok~~ → **F2.5:** parolasız OTA açık, kalıcı uyarı; parola web'den tanımlanır/kaldırılır (kullanıcı kararı) | CONFIGURATION_MODEL §2.10 |
 | D-18 | `controller_enable=OFF` yalnız yerel | ENTITY_MODEL §1 |
 | D-19 | `sched_*` istekleri `sched_timeout_h` ile kendiliğinden düşer | CONTROL_ARCHITECTURE §3.3 |
 | D-20 | Boot sonrası `heater_was_on` ise post-cool | OUTPUT_AND_INTERLOCKS §6 |
@@ -57,7 +57,7 @@
 | OI-H8 | Termik kesici tipi ve eşik | L0 | Elle resetli |
 | OI-H9 | Kart (ESP32-S3-DevKitC-1 varyantı, PSRAM), pin haritası, strapping | Boot güvenliği | Pin tablosu donanım belgesinde |
 | OI-H10 | RTC modülü | Saat, rotasyon, günlük geçmiş | NTP yeterliyse gerek yok |
-| OI-H11 | Durum LED'i / servis butonu | UI LED bölümü, kurtarma | Buton önerilir |
+| OI-H11 | Durum LED'i / servis butonu | UI LED bölümü, kurtarma | **LED kapandı (F2.4):** WS2812B 6 LED'lik şerit, GPIO27 ([WEB_SCADA_UI §11.1](WEB_SCADA_UI.md)). CC-SCH-01 şemasına şerit + seviye çevirici henüz işlenmedi. Buton (BOOT 10 s) F2.2'de |
 | OI-H12 | Muhafaza içi sensör yerleşimi | Öz ısınma | SENSOR_ARCHITECTURE §8 |
 
 ### 3.2 Yazılım / entegrasyon

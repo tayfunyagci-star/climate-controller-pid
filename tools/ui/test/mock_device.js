@@ -20,10 +20,15 @@ const cfg = {
   cabin_overtemp_limit: 40, overtemp_reset_hysteresis: 3, heater_outlet_limit: 80, max_continuous_heating_min: 240, sensor_stale_s: 10, unexpected_rise_c_per_10min: 1.5, max_rise_c_per_10min: 5,
   antifreeze_enabled: true, frost_guard_temperature: 4, frost_exit_hysteresis: 1, setpoint_frost: 5, service_timeout_min: 30, service_test_max_s: 120, restart_storm_limit: 5, restart_storm_window_min: 30,
   user: 'admin', guestRead: false, session_hours: 8,
+  ledB: 20, cls0: '#00ff00', cls1: '#ff8000', cls2: '#ff0000', clw0: '#ff0000', clw1: '#00ff00', clw2: '#0000ff',
+  clq0: '#ff0000', clq1: '#00ff00', clq2: '#ffff00', clm0: '#ff0000', clm1: '#00ff00', clm2: '#ffff00',
+  clr0: '#000000', clr1: '#ff8000', clr2: '#ff0000', clf0: '#000000', clf1: '#00ffff', clf2: '#0000ff',
   temperature_setpoint: 22, setpoint_night: 18, setpoint_away: 12, setpoint_boost: 23, operating_mode: 'AUTO', profile: 'DAY', manual_heat_demand: 40
 };
 const NET = {try: 3, result: 'CONNECTED', fail: 'NONE', phase: 'ONLINE', hold: 0, retryAt: 0};
-const flags = {ap: false, scanN: 0, speed: 10, unplug: false, overtemp: false, broker: true, control: 'apply', offline: false};
+const flags = {pinSet: true, pin: '1234', pinFails: 0, ledStates: null, ap: false, scanN: 0, speed: 10, unplug: false, overtemp: false, broker: true, control: 'apply', offline: false};
+Object.assign(flags, window.__MOCK_INIT || {});   // test otomasyonu: başlangıç bayrakları
+window.__mockFlags = flags; window.__mockCfg = cfg;   // test otomasyonu (Playwright) bayrakları buradan değiştirir
 const S = {
   t: 0, T: 16.8, Tout: -2, RH: 58, Tf: 16.8, cfgRev: 44, seq: 0, boot: 37,
   sched_night: false, sched_away: false, boost: false, boostT: 0, ctrlEnable: true, hfMan: false, vfMan: false, vfManT: 0, lockMs: 0,
@@ -344,7 +349,7 @@ function data() {
     ap_close_s: NET.hold > Date.now() ? Math.ceil((NET.hold - Date.now()) / 1000) : 0, ap_clients: flags.ap ? 1 : 0,
     sta_ip: NET.phase === 'ONLINE' ? '192.168.1.57' : '', static_ip: cfg.staticEnabled,
     device_name: c.adN, ip: NET.phase === 'ONLINE' ? '192.168.1.57' : '192.168.4.1', mdns: c.mdns, client_ip: '192.168.1.20', fw_version: '1.0.0', fw_build: 'r12',
-    wifi_ok: NET.phase === 'ONLINE', wifi_rssi: NET.phase === 'ONLINE' ? -61 : null, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', time_valid: 'ON', password_set: true,
+    wifi_ok: NET.phase === 'ONLINE', wifi_rssi: NET.phase === 'ONLINE' ? -61 : null, mqtt_status: flags.broker ? 'CONNECTED' : 'BACKOFF', mqtt_note: flags.broker ? '192.168.1.10:1883 · mqttsuite/climate/kulube_iklim_01' : 'Broker\'a ulaşılamadı · 8 s sonra yeniden denenecek', time_valid: 'ON', password_set: true, ota_password_set: !!flags.otaPw, ota_ready: NET.phase === 'ONLINE',
     temperature: ok ? +S.Tf.toFixed(1) : null, humidity: +S.RH.toFixed(1), temperature_quality: q, humidity_quality: 'GOOD', t2: null, t2_quality: 'DISABLED',
     sensor_ok: onoff(q === 'GOOD'), sensor_age_s: Math.round((S.t - S.lastGood) / 1000),
     temperature_setpoint: c.temperature_setpoint, setpoint_effective: +S.eff.toFixed(2), setpoint_source: S.src,
@@ -376,6 +381,8 @@ function data() {
     active_alarm_count: al.filter(a => a.state !== 'cleared_unacknowledged').length, unacked_alarm_count: al.filter(a => a.state.indexOf('unack') >= 0).length,
     local_lock: onoff(S.lockMs > 0), local_lock_remaining_s: Math.round(S.lockMs / 1000), last_command_source: S.lastCmdSrc, ack_count: S.ackCount,
     free_heap: 182340 - (S.seq % 7) * 64, min_heap: 151220, control_loop_max_ms: 11, reset_reason: 'POWER_ON', boot_count: S.boot, fault_boot_count: 1,
+    led_ok: true, led_states: flags.ledStates ? flags.ledStates.slice() : [hi === 'CRITICAL' || S.failsafe !== 'NONE' ? 2 : hi === 'WARNING' ? 1 : 0, NET.phase === 'ONLINE' ? 1 : flags.ap ? 2 : 0,
+      flags.broker ? 1 : 0, NET.phase === 'ONLINE' ? 1 : 0, (S.R[0] ? 1 : 0) + (S.R[1] ? 1 : 0), S.VF ? 2 : S.HF ? 1 : 0],
     mqtt_reconnects: 2, sensor_error_rate_10m: flags.unplug ? 100 : 0, sensor_model: cfg.sensor_model, config_rev: S.cfgRev
   };
 }
@@ -441,6 +448,9 @@ function validate(c) {
   if (!(c.frost_guard_temperature < c.setpoint_frost)) return e('frost_guard_temperature', 'Devreye girme sıcaklığı donma hedefinin altında olmalı (V4).');
   if (c.pid_mode === 'PI' && !(c.pid_ki > 0)) return e('pid_ki', 'PI modunda Ki > 0 olmalı (V12).');
   if (!(c.pid_ki <= c.pid_kp)) return e('pid_ki', 'Ki, Kp’den büyük olamaz (Ti ≥ 1 dk, V13).');
+  if (!(c.ledB >= 0 && c.ledB <= 100)) return e('ledB', 'LED parlaklığı %0–100 olmalı.');
+  const bad = Object.keys(c).find(k => /^cl[swqmrf][0-2]$/.test(k) && !/^#[0-9a-f]{6}$/i.test(c[k]));
+  if (bad) return e(bad, 'LED rengi #rrggbb biçiminde olmalı.');
   return null;
 }
 // Bağlantı denemesi benzetimi: 4 s sonra başarı (AP'deyse 120 s devir) veya hata sınıfı
@@ -509,7 +519,7 @@ window.fetch = async function (url, opt) {
   if (p === '/api/net/finish') { if (!(NET.hold > Date.now())) return json({message: 'Kurulum ağı devir durumunda değil'}, 409); NET.hold = 0; setTimeout(() => { flags.ap = false; }, 300); return json({message: 'Kurulum ağı kapatılıyor.'}); }
   if (p === '/api/reset-wifi') { NET.phase = 'AP_ONLY'; NET.result = 'NONE'; NET.try++; flags.ap = true; flags.ssid = ''; ev('WARNING', 'NET', 'Wi-Fi kimliği silindi; kurulum AP’si açıldı'); return json({message: 'Wi-Fi silindi; kurulum AP’si açıldı (SCADA_AP_3C71BF4A)'}); }
   if (p === '/api/settings' && !body) {
-    const out = Object.assign({}, cfg, {otaPasswordSet: true, mqPwSet: true, servicePinSet: true, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
+    const out = Object.assign({}, cfg, {mqtt_topic_base: cfg.mqtt_base + '/' + cfg.slug, otaPasswordSet: !!flags.otaPw, passwordSet: true, mqPwSet: true, servicePinSet: flags.pinSet, ssid: flags.ap ? (flags.ssid || '') : (flags.ssid || 'Kulube-Ag'), passSet: flags.passSet !== false});
     return json(out);
   }
   if (p === '/api/settings') {
@@ -543,13 +553,16 @@ window.fetch = async function (url, opt) {
     return json({message: 'Kilit sıfırlandı'});
   }
   if (p === '/api/events') return json({events: S.events, overwritten: 0});
-  if (p === '/api/session') return json({user: 'admin', role: 'admin', expires: '8 sa'});
+  if (p === '/api/session') return json({user: 'admin', role: 'admin', expires: '7 sa 58 dk kaldı', password_set: true, guest_read: false, auth: true});
   if (p === '/api/login') return body.password ? json({message: 'Giriş yapıldı'}) : json({message: 'Kullanıcı adı veya parola hatalı'}, 401);
   if (p === '/api/logout') return json({message: 'Çıkış yapıldı'});
   if (p === '/api/password') return json({message: 'Parola kaydedildi; bütün oturumlar kapatıldı'});
-  if (p === '/api/service/pin') return json({message: 'Kaydedildi'});
+  if (p === '/api/service/pin') { flags.pinSet = true; flags.pin = body.pin; return json({message: 'Kaydedildi'}); }
   if (p === '/api/service/enter') {
-    if (!body.pin) return json({message: 'Servis PIN’i gerekli'}, 403);
+    if (!flags.pinSet) return json({message: "Servis PIN'i tanımlı değil. Ayarlar › Erişim'den PIN belirleyin."}, 409);
+    if (flags.pinFails >= 5) return json({message: 'Çok fazla hatalı deneme. 60 sn sonra yeniden deneyin.'}, 429);
+    if (body.pin !== flags.pin) { flags.pinFails++; return json({message: flags.pinFails >= 5 ? 'Çok fazla hatalı deneme. 60 sn sonra yeniden deneyin.' : "Servis PIN'i yanlış."}, flags.pinFails >= 5 ? 429 : 403); }
+    flags.pinFails = 0;
     if (S.demand > 0 || S.pc || S.R[0] || S.R[1]) return json({message: 'Isıtma durup soğutma bitmeden servis moduna girilemez'}, 409);
     S.service = true; S.svcT = 0; ev('WARNING', 'SERVICE', 'Servis modu etkin'); return json({message: 'Servis modu etkin'});
   }
@@ -561,7 +574,13 @@ window.fetch = async function (url, opt) {
     return json({message: 'Tamam'});
   }
   if (p === '/api/service/reset-counters') { ev('WARNING', 'SERVICE', 'Sayaçlar sıfırlandı: ' + body.out); return json({message: 'Sayaçlar sıfırlandı'}); }
-  if (p === '/api/ota/begin') return json({message: 'Önizleme: firmware yazılmaz'}, 409);
+  if (p === '/api/ota/password') {
+    if (body.password && (body.password.length < 8 || body.password.length > 64)) return json({message: 'OTA parolası 8–64 karakter olmalı.', field: 'otaPw'}, 400);
+    flags.otaPw = !!body.password;
+    ev('WARNING', 'CONFIG', body.password ? 'OTA parolası değişti' : 'OTA parolası kaldırıldı (parolasız OTA)');
+    return json({message: body.password ? 'OTA parolası kaydedildi; yüklemede --auth gerekir.' : 'OTA parolası kaldırıldı; OTA parolasız açık.', otaPasswordSet: !!body.password});
+  }
+  if (p === '/api/ota/begin') { flags.otaPrep = (flags.otaPrep || 0) + 1; return json(flags.otaPrep < 3 ? {ready: false, message: 'Hazırlanıyor: ısıtma durduruldu, fan soğutması bitince yükleme başlayacak.'} : {ready: true, message: 'Cihaz güncellemeye hazır; imaj yükleniyor.'}); }
   if (['/api/reboot', '/api/factory-reset'].includes(p)) return json({message: 'Önizleme: cihaz işlemi yapılmadı'});
   return json({message: 'Bilinmeyen uç: ' + p}, 404);
 };

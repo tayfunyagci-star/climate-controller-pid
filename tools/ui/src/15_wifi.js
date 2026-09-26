@@ -579,7 +579,7 @@ async function resetWifiFlow(btn, out) {
     h('p', {text: 'Diğer cihaz ayarları korunacak. Isıtma kontrolü ve güvenlik işlevleri çalışmaya devam eder.'}),
     h('dl', {class: 'kv'}, h('dt', {text: 'Kurulum ağı'}), h('dd', {text: apName(d)}), h('dt', {text: 'Parola'}), h('dd', {text: 'Cihaz etiketinde'}),
       h('dt', {text: 'Kurulum adresi'}), h('dd', {text: apUrl(d)})));
-  if (!(await confirmDlg('Wi-Fi bilgilerini sil', body, 'Wi-Fi bilgilerini sil', true))) return;
+  if (!(await confirmDlg('Wi-Fi bilgilerini sil', body, 'Wi-Fi bilgilerini sil', 'warn'))) return;
   btn.setAttribute('aria-busy', 'true');
   NT = {ctx: 'reset', ssid: '', t0: Date.now(), sentAt: Date.now(), base: null, stage: 'saved'};
   let msg;

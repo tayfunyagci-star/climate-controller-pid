@@ -280,3 +280,185 @@ Kullanıcı isteği: firmware'in ilk kurulum ve Wi-Fi kurtarma akışını becer
 1. Beceri şartnamesindeki “Kaydet ve yeniden başlat” yerine **“Kaydet ve bağlan”**: bu firmware Wi-Fi değişimini yeniden başlatmadan uygular (F2.2 sapma 3); metinler gerçek davranışa göre yazıldı.
 2. Devir süresi (120 s) ve “Kurulumu bitir” yeni firmware yeteneğidir; STA farklı kanaldaysa ESP32 AP'si kanal değiştirir ve telefon kısa süre kopabilir — UI bunu beklenen durum olarak anlatır (HIL H26).
 3. Neden sınıfları olasılık bildirir; ESP32 yanlış parolada çoğunlukla 15/204 verir, zayıf sinyal de aynı kodları üretebilir.
+
+## F2.4 — Bölüm bölüm ayar kaydı, WS2812B durum şeridi, cihaz adı (25.09.2026)
+
+Kullanıcı geri bildirimi (ilk kurulum sahası): statik IP kaydı MQTT broker alanı yüzünden reddedildi ve cihaz DHCP adresiyle açıldı; Ayarlar'da LED bölümü yoktu; üst uyarı çerçevesi üst bara yapışıktı; cihaz adı değiştirilemiyordu.
+
+### Kök neden
+
+Ayarlar tek form olarak bütün sekmeleri tek `POST /api/settings` ile gönderiyordu. Firmware MQTT alanlarını (F5) dolu değerde 409 ile reddettiği için aynı istekteki Ağ alanları (statik IP, cihaz adı) da hiç uygulanmıyordu. Cihaz adı alanı vardı ama aynı nedenle kaydedilemiyordu; SLUG alanı boş ve salt okunur olduğundan “cihaz adı buraya mı?” karışıklığı doğuyordu.
+
+### Değişenler
+
+- UI: her sekme ayrı form + kaydet çubuğu (“<Bölüm> ayarlarını kaydet”, Geri al, “diğer bölümlerde N”); doğrulama ve gövde yalnız o bölüm. Cihaz adı kaydında üst başlık ve tarayıcı sekmesi anında güncellenir. SLUG etiketi “SLUG (MQTT kimliği)” + ipucu; GET artık `slug` (`kulube_iklim_<mac3>`) döndürür.
+- UI: LED sekmesi — canlı şerit durumu, parlaklık kaydırıcısı, 6 grup kartı × 3 durum renk paleti (16 renk, tek palet açık, Escape/dışarı dokunma/Kapat, mevcut özel renk korunur).
+- UI: `#global-notices` üstünde 12 px boşluk.
+- Firmware: `cc_ledstrip` (saf mantık + 5 native test), `hal_ws2812` (RMT TX), `status_led` (NVS `led`, 50 ms tempo, kısa kilit denemesi), `/api/data.led_states` + `led_ok`, `/api/settings` `ledB` + `cls0…clf2`. `POST /api/settings` Ağ anahtarı yoksa `net::apply` çağrılmaz (gereksiz NVS yazımı yok).
+- Pin: GPIO27 → 330 Ω → şerit DIN; 5 V besleme, 74AHCT1G125 önerilir (`pins.h`).
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 18 paket / 207 test geçti (`test_ledstrip` 5 yeni) |
+| ESP32 derleme (xtensa gcc 8.4, Arduino-ESP32 2.0.17 başlıkları, ArduinoJson 7.4.3, `-Wall -Wextra`) | Bütün `src/` birimleri uyarısız derlendi; **bağlama (link) yapılmadı** (PlatformIO/Arduino kayıt sunucusu sandbox'ta engelli) |
+| UI (Playwright + sahte cihaz) | Ağ kaydı yalnız ağ alanlarını gönderir; MQTT taslağı korunur; MQTT'deki geçersiz alan ağ kaydını engellemez; başlıkta yeni ad; palet aç/kapat/seç; LED kaydı yalnız LED alanları; uyarı boşluğu 12 px; JS hatası yok |
+| Kartta WS2812B, HIL | **Yapılmadı** — kullanıcı makinesinde |
+
+## F2.5 — Parolasız OTA + web'den OTA parolası (25.09.2026)
+
+Kullanıcı kararı: parolasız OTA çalışsın; parola Ayarlar üzerinden tanımlanıp kaldırılabilsin; parolasız durum uyarı olarak görünsün. D-17 buna göre değişti.
+
+### Değişenler
+
+- `net_manager`: OTA, STA bağlıyken parola olmasa da başlar. OTA sunucusu `ArduinoOTAClass` örneği olarak her parola değişiminde yeniden kurulur. **Düzeltilen hata:** Arduino-ESP32 2.0.17'de `setPasswordHash` parola bir kez atandıktan sonra değişikliği yok sayıyordu; önceki sürümde parola değişimi/kaldırma yeniden başlatmaya kadar etkisizdi.
+- `web`: `POST /api/ota/password {password}` (`""` = kaldır, 8–64); `/api/data` `ota_password_set`, `ota_ready`.
+- UI: Erişim'de ayrı “OTA parolası” formu (yeni parola + tekrar, “OTA parolasını kaydet”, onaylı “Parolayı kaldır”), durum satırı ve panel uyarısı; parolasızken üstte kalıcı genel uyarı. OTA alanları Erişim bölüm formundan çıkarıldı (bölüm kaydı F4 alanlarına takılmasın). Bakım › Firmware'de “parola tanımlı değilse boş bırakın”.
+- Konsol: `otapass clear` parolasız OTA'ya döner; `status` parolasızken `OTA=hazir (PAROLASIZ)`.
+- Güvenli duruş değişmedi: her yüklemede ısıtma durur, soğutma biter; hazırlıksız yükleme iptal edilir.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| ESP32 derleme (xtensa gcc 8.4, Arduino-ESP32 2.0.17 başlıkları) | `net_manager`, `web`, `console` uyarısız; link yapılmadı |
+| UI (Playwright + sahte cihaz) | Parolasız uyarı (üst + panel), kısa parola reddi, kaydet → uyarı kalkar, kaldır (onay) → uyarı döner; F2.4 akışları tekrar geçti |
+| Kartta parolasız/parolalı espota yüklemesi | **Yapılmadı** |
+
+## F2.6 — MQTT ayarlarının kalıcı kaydı (25.09.2026)
+
+Kullanıcı bildirimi: Ayarlar › MQTT kaydı “Bu ayar sonraki fazda (MQTT F5, erişim F4) etkinleşecek” ile reddediliyordu. Neden: broker/kullanıcı/parola/kök topic alanlarının firmware'de karşılığı yoktu; yayın aralıkları, keşif ve uzak yetki alanları ise kalıcı çekirdek deposu (F3) gelmeden değiştirilemiyordu.
+
+### Değişenler
+
+- `mqtt_cfg` (yeni): NVS `mqtt` alanı — `mqtt_host`, `mqtt_port`, `mqtt_user`, `mqtt_password` (yalnız yazılır, GET'te `mqPwSet`), `mqtt_base` ve bölümün çekirdek alanları (`state_active_s`, `state_idle_s`, `diag_interval_s`, `discovery_enabled`, `history_discovery_enabled`, `remote_config_enabled`, `pid_remote_tuning`, `remote_manual_allowed`, `service_channel_enabled`). Boot'ta çekirdek alanları konfigürasyona uygulanır (`main.cpp`).
+- `web`: MQTT bölümü aday olarak bütünüyle doğrulanır (çekirdek alanları `setField` aralık/adım/ilişki kurallarıyla; anonim broker'da `remote_config_enabled` reddi), NVS'e yazılır, değişen çekirdek alanları `applyConfig` ile hemen uygulanır. Yanıt: “MQTT ayarları kaydedildi. MQTT bağlantısı sonraki sürümde (F5) etkinleşecek; şimdilik bağlantı kurulmaz.”
+- UI: MQTT sekmesinin başında aynı bilgi notu.
+- **Sınır:** MQTT istemcisi (bağlantı, yayın, keşif, komut) hâlâ F5; `mqtt_status` DISABLED, LED3 “Tanımsız”.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| ESP32 derleme (xtensa gcc 8.4, Arduino-ESP32 2.0.17 başlıkları) | `mqtt_cfg`, `web`, `main` uyarısız; link yapılmadı |
+| Native + UI regresyon | Geçti |
+| Kartta MQTT kaydı + yeniden başlatma sonrası değerlerin korunması | **Yapılmadı** |
+
+## F5 — MQTT katmanı (25.09.2026)
+
+Kullanıcı isteği: MQTT katmanını ekle, eksik fazlara başla. Kapsam: [MQTT_INTEGRATION.md](MQTT_INTEGRATION.md), [ENTITY_MODEL.md](ENTITY_MODEL.md), `mqtt-studio-dugum` sözleşmesi.
+
+### Eklenenler
+
+- `lib/core/cc_mqtt_map` — **entity tablosu tek kaynak** (89 entity: 52 proses, 18 konfigürasyon, 19 tanı). `id` = state alanı = `/set` son parçası. number/select sınırları ve seçenekleri `cc_config` alan tablosundan okunur. Keşif yükü saf C++ ile üretilir (`~` kısayolu, kısa anahtarlar, `val_tpl` = `{{ value_json.<id> }}`, `o.name = esp-climate-node`, `alarm_ack` butonunda `json_attributes_template` + `ack_count`). Native `test_mqtt_map` (5 test).
+- `src/app/mqtt_client` — esp-mqtt istemcisi ve `mqtt` görevi:
+  - Kimlik: client ID = SLUG (`kulube_iklim_<mac3>`, sabit), `B = <kök>/<SLUG>`, `dev.name = "Kulübe İklim <mac3>"` (sabit), LWT `B/avail offline` retained QoS 1.
+  - Bağlanma sırası: abonelik (`B/+/set`, `homeassistant/status`) → keşif (2 kayıt / 20 ms) → `alarm/state` → `state` → `config/reported` → `diag/state` → `B/avail online` retained; `avail` 30 s'de bir tazelenir.
+  - Yayınlar: `B/state` retained QoS 1 — içerik değişiminde ≤ 1 s, ısıtırken `state_active_s`, boşta `state_idle_s`; `B/config/reported` özet değişince; `B/alarm/state` değişimde; `B/diag/state` `diag_interval_s`; `B/event` (QoS 0, kopukluk olayları replay edilmez); `B/ack` her komutta.
+  - Komutlar: `ClimateCore::command(id, payload, MQTT)` — web ile aynı doğrulama, uzak yazım politikası (`remote_config_enabled`, `pid_remote_tuning`, `remote_manual_allowed`), yerel kilit. Retained komut (`retain` bayrağı) ve abonelikten sonraki ilk 2 s yok sayılır. Kabul ya da ret sonrası güncel state hemen yayınlanır (Suite 8 s doğrulaması).
+  - `homeassistant/status = online` → keşif yeniden (≥ 10 s aralık). Keşif kapatılınca kayıtlar boş retained ile silinir.
+  - Kök topic değişimi = taşınma: eski adrese `offline`, eski retained kayıtlar ve keşif temizlenir, yeni adresle bağlanılır.
+  - Kopma: 1 → 2 → 4 … 60 s (+ %20 jitter), `mqtt_reconnects`; kimlik reddi `AUTH_FAIL`; `MQTT_OFFLINE` alarmı çekirdekte (broker tanımlı ama bağlı değil).
+- `src/app/state_json` — `/api/data` ve `B/state` aynı alan yazıcısını kullanır; `B/config/reported` (`config_hash`), `B/diag/state`.
+- UI: Ayarlar › MQTT'de canlı durum paneli (durum, ayrıntı, topic tabanı, yeniden bağlanma); kimlik reddinde genel uyarı. LED3 artık gerçek MQTT durumunu gösterir.
+- FW 0.3.0 (`src/app/version.h`).
+
+### Sapmalar
+
+1. İstemcinin tek kullanıcısı NetTask değil ayrı `mqtt` görevi (IMPLEMENTATION_PROMPT §3'ten sapma): broker gecikmesi web/Wi-Fi döngüsünü bekletmez; kural (tek sahip) korunur.
+2. Tampon 2048 değil 3072 B.
+3. Günlük geçmiş (`B/history/heat_minutes_daily`) yayınlanmıyor: 7 günlük pencere kalıcı sayaç deposu (F3) gerektirir.
+4. Servis zarfı (`B/service/cmd`) abone edilmiyor: servis jetonu F4'te.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 19 paket geçti (`test_mqtt_map` yeni) |
+| Keşif yükleri (host dökümü + Python `json`) | 89 kayıt geçerli JSON; `val_tpl` düz alan kuralı; en büyük 632 B; `dev.ids` tek; `bridge` yok |
+| Entity ↔ yayın kapsaması (statik) | Her entity'nin alanı ilgili topic yazıcısında var; `B/state` kötü durum ≈ 1.5 KB |
+| **Tam ESP32 imajı** (xtensa gcc 8.4, Arduino-ESP32 2.0.17 tarifleri, elle bağlama) | **ELF bağlandı**; uygulama kodunda uyarı yok; flash ≈ 1.18 MB / 1.83 MB bölüm, statik RAM ≈ 81 KB |
+| UI (Playwright + sahte cihaz) | MQTT durum paneli; önceki akışlar geçti |
+| Gerçek broker + Studio headless ölçümü, `broker_teshis.py` | **Yapılmadı** — sandbox'ta broker/Studio yok; faz çıkış kriteri kartta ölçülmeli |
+
+## F3 — Kalıcı depo (26.09.2026)
+
+Kapsam: [ADR-007](ADR/ADR-007-persistence-flash-wear.md), [CONFIGURATION_MODEL §1](CONFIGURATION_MODEL.md), scada-cihaz-standardi cihaz-temeli §4.
+
+### Eklenenler
+
+- `lib/core/cc_store` (saf, native test): `GenStore` — nesil numaralı CRC32 çerçeve; yazım `tmp` → geri okuma doğrulaması → `bin`→`bak`, `tmp`→`bin`; yükleme üç kopyadan geçerli en yüksek nesil. Konfigürasyon belgesi (metin, şema göçü), günlük ısıtma geçmişi (7 gün, takvim gün serisi, geri saatte kaydırma yok), kalıcı olay halkası (64, epoch damgalı). `test_store` (6 test): her dosya adımında güç kesintisi (yarım yazım dahil) → eski ya da yeni kayıt, asla boş/bozuk; bit hatasında yedeğe düşme; bozuk tek kopyada `CORRUPT`.
+- `src/app/storage` — StorageTask (flash'ın tek sahibi, çekirdek 0, düşük öncelik), LittleFS `littlefs` bölümü:
+  - config: değişimden 5 s sonra, sürekli değişimde en geç 60 s'de; `config_rev` = nesil.
+  - alarms: kilitli alarmlar + onay durumu (`AlarmPersist`) geçişte; boot'ta `BootInfo.restore_alarms`.
+  - counters: çalışma saati, anahtarlama, boot sayısı, hatalı boot toplamı, bugünkü ısıtma süresi + 7 günlük geçmiş; 15 dk'da bir, gün devrinde hemen.
+  - events: WARNING+ son 64 olay, en çok 60 s'de bir; olay `seq`'i açılışlar arasında tekdüze artar; `/api/events` önceki açılışların olaylarını `prev_boot` ile döndürür.
+  - programs: yerel programlar + etkinlik, değişimde; boot'ta doğrulanarak geri yüklenir.
+  - Yeniden başlatma (web, konsol) ve OTA öncesi `flushNow` (bekleyen her şey yazılır).
+  - Açılamayan dosya sistemi biçimlendirilmez; yalnız hiç biçimlendirilmemiş yeni cihaz (NVS `stor/fsinit` yok) biçimlendirilir. Bozuk/doğrulanmayan konfigürasyon → güvenli varsayılan + `CONFIGURATION_ERROR` (fabrika sıfırlaması yok).
+- Ayarlar: **Sensörler, Kontrol ve Güvenlik sekmeleri artık kaydedilir** — alanlar `setField` ile adaya işlenir, `applyConfig` bütün adayı (V1–V17 + programlar) doğrular, StorageTask kalıcı yazar. Yeniden başlatma gerektiren alanda (sürücü seçimi) yanıt bunu söyler. Yalnız erişim alanları (F4) reddedilir.
+- MQTT: `B/history/heat_minutes_daily` (retained; bağlantı, gün devri, saatlik), keşfi `history_discovery_enabled` ile. `B/diag/state` ve `/api/data`: `boot_count`, `config_rev`, depo sayaçları; `B/config/reported`: `config_rev`.
+- Konsol `status`: depo satırı.
+
+### Sınırlar
+
+- Güç kesintisinde en çok: sayaçlarda 15 dk, olaylarda 60 s, konfigürasyonda 60 s (sürekli değişimde) kayıp.
+- `heater_was_on` (boot post-cool bayrağı) kalıcı değil, RTC'de kalır: her rezistans anahtarlamasında flash yazımı aşınma yaratır; güç kesintisinde fan da durduğundan boot post-cool bilgisi yoktur (SELF_TEST sonrası prestart kuralı geçerli).
+- Konfigürasyon yedeği indir/geri yükle, sayaç sıfırlama ve fabrika ayarı (dosyaların silinmesi) F4 uçlarıyla gelir.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 20 paket geçti (`test_store` yeni) |
+| Tam ESP32 imajı (xtensa gcc 8.4, Arduino-ESP32 2.0.17 + LittleFS, elle bağlama) | ELF bağlandı, uygulama kodunda uyarı yok; flash ≈ 1.24 MB / 1.83 MB, statik RAM ≈ 96 KB |
+| UI regresyon (Playwright + sahte cihaz) | Geçti |
+| Kartta güç kesintisi / yazım ortası testi (faz çıkış kriteri) | **Yapılmadı** — kartta: ayar kaydet → 3 s içinde güç kes → açılışta `status` depo satırı ve ayar değeri |
+
+## F4 — Web oturumu ve kalan REST uçları (26.09.2026)
+
+Kapsam: [WEB_SCADA_UI §13](WEB_SCADA_UI.md), [SECURITY §2](SECURITY.md).
+
+### Eklenenler
+
+- **Erişim** (`lib/core/cc_auth` + `src/app/auth`): web parolası PBKDF2-HMAC-SHA256 (2048 iterasyon, 16 B tuz, NVS `auth`; yalnız özet), en çok 4 oturum (128 bit belirteç, `sid` çerezi `HttpOnly; SameSite=Strict`, oturum süresi `session_hours`, "beni hatırla" 14 gün), deneme sınırı (IP başına 5 / 5 dk → 5 dk; genel 20 / 5 dk), sabit zamanlı karşılaştırma. Parola tanımsızken cihaz açık (kalıcı uyarı); tanımlıyken misafir okuma (`guestRead`) dışında her uç oturum ister. Parola değişiminde bütün oturumlar düşer. BOOT 10 s: Wi-Fi ile birlikte web parolası da silinir (ayarlar korunur). `test_auth` (4 test).
+- Uçlar: `POST /api/login`, `/api/logout`, `GET /api/session`, `POST /api/password`; Ayarlar › Erişim (`user`, `guestRead`, `session_hours`) kaydı.
+- **Servis**: `/api/service/pin` (PIN özeti), `/enter` (PIN + deneme sınırı), `/exit`, `/test` (çekirdek servis testi), `/reset-counters` (önceki çalışma saati olay günlüğüne `COUNTERS_RESET`, kalıcı depoya hemen yazılır). `/api/data.service_remaining_s`.
+- **Programlar**: `POST /api/programs` — liste bütünüyle ayrıştırılıp `validatePrograms` ile doğrulanır, hata `{code, index}` (UI metinleri), başarıda F3 deposu kalıcı yazar.
+- **Trend**: `GET /api/trend?win=` — RAM halkaları 1 sa × 5 s ve 24 sa × 60 s (bitler dakika içinde VEYA), yanıt parça parça akıtılır (1440 örnek JSON belgesi RAM'e alınmaz). Saat geçersizse zaman ekseni çalışma süresidir.
+- **Web OTA**: `POST /api/ota/begin` (parola + boyut, güvenli duruş başlatır; `ready:false` iken UI 2 s'de bir yineler) → `POST /api/ota` ham gövde, 1.4 KB parçalarla `Update`'e; yetki, `X-SCADA`, OTA parolası ve hazır durum ilk parçada denetlenir. Başarıda kayıtlar yazılır ve yeniden başlatılır; hatada hazırlık geri alınır. UI: ilerleme çubuğu, yanıt alınamazsa "belirsiz sonuç" metni.
+- **Fabrika ayarı**: ısıtma/soğutma sürerken reddedilir; konfigürasyon, sayaç, olay, program dosyaları ve NVS `net`, `mqtt`, `led`, `auth` silinir; kilitli alarmlar korunur; yeniden başlatma → kurulum AP'si.
+- UI: 401'de tek "Oturum gerekli" notu ve Oturum sayfası (bayat veri alarmı yerine), girişten sonra Genel Bakış; Erişim'de web parolası durum satırı. Düzeltilen hata: veri hiç gelmediğinde genel notlar çizilmiyordu.
+- Olay kodları: `COUNTERS_RESET`, `FACTORY_RESET`, `AUTH_FAIL`, `PASSWORD_CHANGED`, `OTA_WEB`.
+
+### Sınırlar (sonraki fazlar)
+
+- Kurtarma sorusu, operatör rolü, konfigürasyon yedeği indir/geri yükle: yapılmadı (F6/F7 adayı).
+- OTA rollback (bootloader `APP_ROLLBACK`) etkin değil: imaj `Update.end` doğrulamasından geçmezse etkinleşmez, geçen imaj ilk açılışta çökerse otomatik geri dönüş yok (F7).
+- HTTPS yok (SECURITY §2 kararı).
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 21 paket geçti (`test_auth` yeni) |
+| Tam ESP32 imajı (xtensa gcc 8.4, Arduino-ESP32 2.0.17 + LittleFS + mbedTLS, elle bağlama) | ELF bağlandı, uygulama kodunda uyarı yok; flash ≈ 1.29 MB / 1.83 MB (%70), statik RAM ≈ 97 KB (+ trend 17 KB yığın) |
+| UI (Playwright + sahte cihaz) | 401 → Oturum sayfası → giriş → Genel Bakış; OTA hazırlık yinelemesi + ilerlemeli yükleme; önceki akışlar |
+| Kartta: parola/oturum, PBKDF2 süresi (seri log `[AUTH] PBKDF2 … ms`), web OTA, fabrika ayarı | **Yapılmadı** |
+
+
+## F4.1 — Ayarlar › LED sayfası aile düzenine uyarlandı (27.09.2026)
+
+- Canlı şerit: 4 sütunlu kutular (renk noktası + “LED n · Ad” + durum); mobilde 2 sütun. Not: görünüm cihazın bildirdiği durum + kayıtlı renktir, WS2812B geri bildirimi yoktur.
+- Renkler: sabit sıra açıklaması; grup kartında her durum bir sütun (durum adı, renk noktası, renk adı); palet sütunun altında açılır (kenar sütunlarda ekrana hizalı). Grup ipuçları kart `title`'ına taşındı.
+- Yalnız UI (`60_settings.js`, `app.css`); API ve firmware değişmedi. Doğrulama: Playwright + sahte cihaz, 1280 px açık / 390 px koyu, palet açık; JS hatası yok. Kartta görsel kontrol yapılmadı.
+
+## F4.2 — Açılış çökmesi ve LittleFS günlük gürültüsü düzeltildi (27.09.2026)
+
+Belirti (seri port, her açılışta): `assert failed: xQueueSemaphoreTake queue.c:1545 (( pxQueue ))` → yeniden başlama döngüsü; öncesinde `/littlefs/*.bin|.bak|.tmp does not exist, no permits for creation`.
+
+- **Kök neden (assert):** `storage::afterCoreBegin()` sayaç/olay/program geri yüklemesi için `app::coreLock()` çağırıyordu; çekirdek kilidi ise ancak `app::tasksStart()` içinde oluşturuluyordu → `xSemaphoreTake(NULL)`. Düzeltme: `app::coreAttach()` (çekirdek + kilit, idempotent) `g_core.begin()` hemen ardından çağrılır; `coreLock()` kilit yoksa `false` döner.
+- **Aynı sınıftan ikinci risk:** kontrol görevi `net::begin()`'den önce başlar ve `net::clockValid()` okur; `net_manager` kilidi null denetimi yapmıyordu. Diğer modüllerdeki gibi null güvenli yapıldı (mutex yokken NetTask da yoktur).
+- **Günlük gürültüsü:** Arduino-ESP32 2.0.x `LittleFS.exists()` `open(p,"r")` ile çalışır ve yok olan dosyada `[E] vfs_api.cpp:105` basar (GenStore ilk açılışta .bin/.bak/.tmp yoklar). `stat()` tabanlı `fexists()` ile değiştirildi. Bu satırlar hata değildi; ilk açılışta dosyaların henüz olmamasıdır.
+- Doğrulama: ESP32 derleme (arduino-cli, Arduino-ESP32 2.0.17, `-Wall -Wextra`) uyarısız. `pio run` ve kartta açılış **yapılmadı**.

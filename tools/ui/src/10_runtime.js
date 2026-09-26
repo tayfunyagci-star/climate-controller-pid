@@ -41,7 +41,8 @@ function confirmDlg(title, body, okText, danger) {
   else b.append(body);
   const ok = $('#dlg-ok');
   ok.textContent = okText || 'Onayla';
-  ok.className = danger ? 'danger' : 'primary';
+  ok.className = danger === 'warn' ? 'warn' : danger ? 'danger' : 'primary';   // onay düğmesi riskin sınıfını alır
+  ok.disabled = false;
   dlgTrigger = document.activeElement;
   return new Promise(res => {
     dlgResolve = res;
@@ -57,6 +58,7 @@ function closeDlg(v) {
 
 // ---------------------------------------------------------------- canlı veri
 let D = null;            // son /api/data
+let authNeeded = false;  // parola tanımlı ve oturum yok (401)
 let lastOk = 0;          // son başarılı veri zamanı
 let seenBuild = null;
 const pageUpdaters = {}; // bölüm → güncelleme fonksiyonu
@@ -65,11 +67,15 @@ function stale() { return !D || Date.now() - lastOk > STALE_MS; }
 async function poll() {
   try {
     const d = await api('/api/data');
+    authNeeded = false;
     if (seenBuild && d.fw_build && d.fw_build !== seenBuild) toast('Yeni firmware çalışıyor: ' + d.fw_build);
     seenBuild = d.fw_build || seenBuild;
     D = d;
     lastOk = Date.now();
-  } catch (e) { /* bayatlık aşağıda görünür */ }
+  } catch (e) {
+    // 401: oturum gerekli — bayat veri alarmı yerine tek not ve Oturum sayfası
+    if (e.status === 401) { if (!authNeeded && currentRoute !== 'login') go('login', true); authNeeded = true; }
+  }
   renderAll();
 }
 function renderAll() {
@@ -195,9 +201,9 @@ function renderShell() {
   const st = stale();
   $$('[data-pill=live]').forEach(p => {
     p.classList.toggle('stale', st);
-    setText(p.lastChild, !D ? 'Bağlanıyor' : (st ? 'Bayat · ' + fmt.age(Date.now() - lastOk) : 'Canlı · ' + fmt.age(Date.now() - lastOk)));
+    setText(p.lastChild, !D ? (authNeeded ? 'Oturum gerekli' : 'Bağlanıyor') : (st ? 'Bayat · ' + fmt.age(Date.now() - lastOk) : 'Canlı · ' + fmt.age(Date.now() - lastOk)));
   });
-  if (!D) return;
+  if (!D) { renderGlobalNotices(st); return; }
   const q = D.temperature_quality;
   $$('[data-pill=wifi]').forEach(p => setPill(p, D.wifi_ok ? 'ok' : 'bad', 'Wi-Fi · ' + (D.wifi_ok ? 'Hazır' : 'Yok')));
   $$('[data-pill=mqtt]').forEach(p => setPill(p, D.mqtt_status === 'CONNECTED' ? 'ok' : (D.mqtt_status === 'DISABLED' ? null : 'bad'),
@@ -206,6 +212,8 @@ function renderShell() {
   $$('[data-pill=time]').forEach(p => setPill(p, D.time_valid === 'ON' ? 'ok' : 'warn', 'Saat · ' + (D.time_valid === 'ON' ? 'Eşitli' : 'Bekleniyor')));
   // kimlik
   setText($('#dev-name'), D.device_name || 'Kulübe İklim');
+  const title = (D.device_name || 'Kulübe İklim') + ' · ' + ($('#' + currentRoute) ? $('#' + currentRoute).dataset.title : '');
+  if (document.title !== title) document.title = title;
   setText($('#id-ip'), D.ip || '—');
   setText($('#id-mdns'), (D.mdns || '—') + '.local');
   setText($('#id-client'), D.client_ip || '—');
@@ -237,7 +245,8 @@ function renderGlobalNotices(st) {
   const box = $('#global-notices');
   const list = [];
   // Ağ değişikliği sırasında beklenen kopma: alarm yağmuru yerine tek sakin not (yönergeler Wi-Fi penceresinde)
-  if (st && netTransitionActive()) list.push(['warn', 'Ağ değişikliği sürüyor: bu adresle bağlantı kesildi (son veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + ' önce). Kumandalar devre dışı; kontrol cihazda çalışmaya devam eder.']);
+  if (authNeeded) list.push(['warn', 'Oturum gerekli: cihaz web parolasıyla korunuyor. Oturum sayfasından giriş yapın.']);
+  else if (st && netTransitionActive()) list.push(['warn', 'Ağ değişikliği sürüyor: bu adresle bağlantı kesildi (son veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + ' önce). Kumandalar devre dışı; kontrol cihazda çalışmaya devam eder.']);
   else if (st) list.push(['critical', 'Veri bayat: son geçerli veri ' + (D ? fmt.age(Date.now() - lastOk) : '—') + '. Kumandalar devre dışı.']);
   if (D) {
     if (D.controller_state === 'FAILSAFE') list.push(['critical', 'GÜVENLİ DURUM · ' + (FAILSAFE_TR[D.failsafe_reason] || D.failsafe_reason) + '. Rezistanslar kapalı.']);
@@ -247,6 +256,8 @@ function renderGlobalNotices(st) {
     if (D.ap_mode && D.net_setup !== 'HANDOVER' && !(currentRoute === 'overview' && !setupCollapsed))
       list.push(['warn', (D.wifi_ssid ? 'Cihaz kayıtlı Wi-Fi ağına bağlanamadı; ' : 'Wi-Fi kurulumu tamamlanmadı; ') + 'kurulum ağı “' + (D.ap_name || 'SCADA_AP') + '” açık (' + (D.ap_ip || '192.168.4.1') + '). Ağ seçimi: Genel Bakış.']);
     if (D.net_note) list.push(['warn', D.net_note]);
+    if (D.mqtt_status === 'AUTH_FAIL') list.push(['warn', 'MQTT broker kimlik bilgilerini reddetti. Ayarlar › MQTT bölümünden kullanıcı adı ve parolayı denetleyin.']);
+    if (D.ota_password_set === false) list.push(['warn', 'OTA parolasız açık: aynı ağdaki herkes firmware yükleyebilir. Ayarlar › Erişim › OTA parolası bölümünden parola belirleyin.']);
     if (D.password_set === false) list.push(['warn', 'Web parolası tanımlı değil. Ayarlar › Erişim bölümünden parola belirleyin.']);
   }
   const key = JSON.stringify(list);

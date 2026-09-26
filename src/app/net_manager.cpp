@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstring>
 #include "core_api.h"
+#include "storage.h"
 #include "cc_netfsm.h"
 #include "tasks.h"
 #include "web.h"
@@ -36,6 +37,9 @@ bool g_ota_reload = false;                     // OTA parolası değişti → Ar
 cc::NetFsm g_fsm;
 DNSServer g_dns;
 bool g_ap = false, g_services = false, g_ota_started = false;
+// OTA sunucusu parola değişiminde yeniden oluşturulur: ArduinoOTAClass parolayı bir kez aldıktan sonra
+// setPasswordHash ile değiştirmez/silmez (2.0.17). Tek sahip NetTask.
+ArduinoOTAClass* g_ota_srv = nullptr;
 char g_gw[16] = "";
 char g_ntp_buf[64] = "pool.ntp.org";
 std::atomic<bool> g_synced{false};
@@ -61,8 +65,10 @@ void onWifiEvent(arduino_event_id_t id, arduino_event_info_t info) {
 }
 
 struct Lock {
-  Lock() { xSemaphoreTake(g_mtx, portMAX_DELAY); }
-  ~Lock() { xSemaphoreGive(g_mtx); }
+  // Kontrol ve depo görevleri net::begin()'den önce başlar (clockValid vb. okur). Mutex yoksa NetTask da yoktur:
+  // varsayılan durum kilitsiz okunur (xSemaphoreTake(NULL) → assert queue.c:1545 olmaz).
+  Lock() { if (g_mtx) xSemaphoreTake(g_mtx, portMAX_DELAY); }
+  ~Lock() { if (g_mtx) xSemaphoreGive(g_mtx); }
 };
 
 void note(cc::Severity s, cc::EvCode c, cc::CmdSource actor = cc::CmdSource::SYSTEM, float v = cc::kNaN) {
@@ -122,12 +128,21 @@ void startSntp() {
   sntp_init();
 }
 
+void stopOta() {
+  if (g_ota_srv) { g_ota_srv->end(); delete g_ota_srv; g_ota_srv = nullptr; }
+  g_ota_started = false;
+}
+
+// D-17 (F2.5): OTA parolasız da açıktır; parola Ayarlar › Erişim'den tanımlanır/kaldırılır, parolasız durum
+// UI'da kalıcı uyarıdır. Yükleme her durumda güvenli duruş (OTA_PREP) ister.
 void startOta(const char* host, const char* hash) {
-  if (g_ota_started || !hash[0]) return;       // D-17: parolasız OTA yok
-  ArduinoOTA.setHostname(host);
-  ArduinoOTA.setPasswordHash(hash);
-  ArduinoOTA.setMdnsEnabled(false);             // mDNS'i biz yönetiyoruz
-  ArduinoOTA.onStart([]() {
+  if (g_ota_started) return;
+  g_ota_srv = new ArduinoOTAClass();
+  ArduinoOTAClass& o = *g_ota_srv;
+  o.setHostname(host);
+  if (hash[0]) o.setPasswordHash(hash);
+  o.setMdnsEnabled(false);                      // mDNS'i biz yönetiyoruz
+  o.onStart([]() {
     bool ready = false;
     if (app::coreLock(200)) {
       app::core().otaBegin(cc::CmdSource::LOCAL_SERVICE);   // güvenli duruş: OTA_PREP → ısıtma/post-cool biter → OTA
@@ -139,20 +154,21 @@ void startOta(const char* host, const char* hash) {
       Update.abort();
       return;
     }
+    storage::flushNow(1500);                    // sayaçlar/olaylar imaj yazımından önce
     note(cc::Severity::WARNING, cc::EvCode::OTA_START, cc::CmdSource::LOCAL_SERVICE);
   });
-  ArduinoOTA.onError([](ota_error_t e) {
+  o.onError([](ota_error_t e) {
     if (app::coreLock(200)) { app::core().otaAbort(); app::coreUnlock(); }
     note(cc::Severity::WARNING, cc::EvCode::OTA_FAIL, cc::CmdSource::LOCAL_SERVICE, (float)e);
   });
-  ArduinoOTA.begin();
+  o.begin();
   g_ota_started = true;
 }
 
 void apply(const cc::NetActions& a, const NetSettings& n, const char* ssid, const char* pass, const char* ota,
            const char* ap_name) {
   if (a.stop_services && g_services) {
-    if (g_ota_started) { ArduinoOTA.end(); g_ota_started = false; }
+    stopOta();
     MDNS.end();
     g_services = false;
   }
@@ -257,7 +273,7 @@ void netTask(void*) {
         release = g_release;
         g_release = false;
       }
-      if (ota_reload && g_ota_started) { ArduinoOTA.end(); g_ota_started = false; }
+      if (ota_reload) stopOta();
       if (ota_reload && g_services) startOta(n.mdns, ota);
       strncpy(g_ntp_buf, n.ntp, sizeof g_ntp_buf - 1);
       if (reconnect) g_fsm.requestReconnect();
@@ -308,12 +324,12 @@ void netTask(void*) {
     }
     if (g_ap) g_dns.processNextRequest();
     web::handle();
-    if (g_ota_started) ArduinoOTA.handle();
+    if (g_ota_srv) g_ota_srv->handle();
     bool reboot;
     uint32_t at;
     { Lock l; reboot = g_reboot; at = g_reboot_at; }
     if (reboot && (int32_t)(millis() - at) >= 0) {
-      Serial.println("[NET] Yeniden baslatiliyor");
+      Serial.println(storage::flushNow(2000) ? "[NET] Kayitlar yazildi; yeniden baslatiliyor" : "[NET] Kayit dogrulanamadi; yeniden baslatiliyor");
       Serial.flush();
       ESP.restart();
     }
@@ -334,6 +350,18 @@ Status status() { Lock l; return g_status; }
 NetSettings settings() { Lock l; return g_cfg; }
 bool passSet() { Lock l; return g_pass[0] != 0; }
 bool otaPasswordSet() { Lock l; return g_ota[0] != 0; }
+bool otaPasswordCheck(const char* pw) {
+  MD5Builder md;
+  md.begin();
+  md.add(String(pw));
+  md.calculate();
+  const String h = md.toString();
+  Lock l;
+  if (!g_ota[0] || h.length() != 32) return false;
+  uint8_t d = 0;
+  for (int i = 0; i < 32; ++i) d |= (uint8_t)(h[i] ^ g_ota[i]);   // sabit zamanlı
+  return d == 0;
+}
 bool clockValid() { Lock l; return g_status.clock_valid; }
 int64_t epochUtc() { return (int64_t)time(nullptr); }
 bool wifiConfigured() { Lock l; return g_ssid[0] != 0; }

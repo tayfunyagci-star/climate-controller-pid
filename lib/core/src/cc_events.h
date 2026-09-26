@@ -53,6 +53,11 @@ enum class EvCode : uint16_t {
   NET_WIFI_CLEARED,
   OTA_START,
   OTA_FAIL,
+  COUNTERS_RESET,      // val = maske (bit0 R1 … bit3 VF)
+  FACTORY_RESET,
+  AUTH_FAIL,           // hatalı giriş (IP son baytı)
+  PASSWORD_CHANGED,    // val = 1 tanımlandı, 0 kaldırıldı
+  OTA_WEB,             // web'den imaj yüklemesi başladı (val = KB)
   COUNT_
 };
 const char* name(EvCode);

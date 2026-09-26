@@ -3,13 +3,25 @@
 #include <ArduinoJson.h>
 #include <WebServer.h>
 #include <WiFi.h>
+#include <Preferences.h>
+#include <Update.h>
+#include <esp_ota_ops.h>
+#include <functional>
 #include <cmath>
 #include <cstring>
+#include "auth.h"
 #include "boot_state.h"
 #include "core_api.h"
 #include "cc_netfsm.h"
+#include "mqtt_cfg.h"
+#include "mqtt_client.h"
+#include "state_json.h"
+#include "version.h"
 #include "net_manager.h"
+#include "status_led.h"
+#include "storage.h"
 #include "tasks.h"
+#include "trend.h"
 #include "ui_generated.h"
 
 namespace web {
@@ -19,7 +31,6 @@ namespace {
 WebServer g_srv(80);
 cc::Event g_ev[200];   // olay kopyası (yalnız NetTask)
 
-const char* kFwVersion = "0.2.3";
 
 void headers(bool api) {
   g_srv.sendHeader("X-Content-Type-Options", "nosniff");
@@ -91,52 +102,27 @@ void fnum(JsonObject o, const char* k, float v, int dec = 2) {
   else { const float p = powf(10.f, (float)dec); o[k] = roundf(v * p) / p; }
 }
 
-void isoLocal(int64_t local_min, char out[24]) {
-  const int32_t day = (int32_t)(local_min >= 0 ? local_min / 1440 : (local_min - 1439) / 1440);
-  char d[11];
-  cc::formatDate(day, d);
-  const int32_t m = (int32_t)(local_min - (int64_t)day * 1440);
-  snprintf(out, 24, "%sT%02d:%02d", d, (int)((m / 60) % 24), (int)(m % 60));
-}
 
 // ---------------------------------------------------------------- /api/data
+// Proses alanları MQTT B/state ile aynı yazıcıdan (state_json); burada yalnız web'e özgü kimlik/ağ/tanı eklenir.
 void handleData() {
-  cc::CoreSnapshot s;
-  cc::Config c;
-  uint32_t sw[4] = {0, 0, 0, 0};
-  uint64_t on_ms[4] = {0, 0, 0, 0};
-  uint8_t vsrc = 0;
-  bool svc[4] = {false, false, false, false};
-  float err_rate = 0;
-  char prog[24] = "—";
-  if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul; yeniden deneyin."); return; }
-  s = app::core().snapshot();
-  c = app::core().config();
-  for (uint8_t k = 0; k < 4; ++k) {
-    sw[k] = app::core().guard().switchCount(k);
-    on_ms[k] = app::core().guard().onTimeMs(k);
-    svc[k] = app::core().serviceTestOn(k);
-  }
-  vsrc = app::core().vent().sources;
-  err_rate = app::core().t1().error_rate_10m;
-  if (s.program_index >= 0 && s.program_index < app::core().programCount())
-    strncpy(prog, app::core().programs()[s.program_index].name, sizeof prog - 1);
-  app::coreUnlock();
+  app::Frame f;
+  if (!app::capture(f, 100)) { replyMsg(503, "Çekirdek meşgul; yeniden deneyin."); return; }
   const net::Status ns = net::status();
   const net::NetSettings nc = net::settings();
   const app::TaskStats ts = app::stats();
+  const mq::Status ms = mq::status();
 
   JsonDocument doc;
   JsonObject d = doc.to<JsonObject>();
-  d["v"] = 1;
-  d["seq"] = s.seq;
-  if (ns.clock_valid) d["ts"] = (int64_t)time(nullptr); else d["ts"] = nullptr;
-  d["uptime"] = s.uptime_s;
+  app::writeProcess(d, f);
+  app::writeWebExtras(d, f);
+  if (!ns.clock_valid) d["ts"] = nullptr;
   d["device_name"] = nc.adn;
   d["ip"] = ns.ip;
   d["mdns"] = nc.mdns;
   d["client_ip"] = g_srv.client().remoteIP().toString();
-  d["fw_version"] = kFwVersion;
+  d["fw_version"] = app::kFwVersion;
   d["fw_build"] = ui::kUiBuild;
   d["ap_mode"] = ns.ap_mode;
   d["ap_name"] = ns.ap_name;
@@ -145,92 +131,31 @@ void handleData() {
   d["net_note"] = ns.note;
   d["wifi_ok"] = ns.sta_ok;
   if (ns.sta_ok) d["wifi_rssi"] = ns.rssi; else d["wifi_rssi"] = nullptr;
-  d["mqtt_status"] = "DISABLED";   // F5
+  d["mqtt_status"] = mq::stateName(ms.state);
+  d["mqtt_reconnects"] = ms.reconnects;
+  d["mqtt_note"] = ms.note;
+  {
+    uint8_t ls[cc::kLedCount];
+    leds::states(ls);
+    JsonArray la = d["led_states"].to<JsonArray>();
+    for (uint8_t v : ls) la.add(v);
+    d["led_ok"] = leds::driverOk();
+  }
   d["time_valid"] = onoff(ns.clock_valid);
-  d["password_set"] = false;       // web parolası F4
-  fnum(d, "temperature", s.temperature, 1);
-  fnum(d, "humidity", s.humidity, 1);
-  d["temperature_quality"] = cc::name(s.temperature_quality);
-  d["humidity_quality"] = cc::name(s.humidity_quality);
-  d["t2"] = nullptr;
-  d["t2_quality"] = cc::name(s.t2_quality);
-  d["sensor_ok"] = onoff(s.sensor_ok);
-  d["sensor_age_s"] = s.sensor_age_s;
-  fnum(d, "temperature_setpoint", s.temperature_setpoint, 1);
-  fnum(d, "setpoint_effective", s.setpoint_effective);
-  d["setpoint_source"] = cc::name(s.setpoint_source);
-  fnum(d, "setpoint_night", c.setpoint_night, 1);
-  fnum(d, "setpoint_away", c.setpoint_away, 1);
-  fnum(d, "setpoint_frost", c.setpoint_frost, 1);
-  fnum(d, "setpoint_boost", c.setpoint_boost, 1);
-  d["boost_minutes"] = c.boost_minutes;
-  fnum(d, "frost_guard_temperature", c.frost_guard_temperature, 1);
-  d["profile"] = cc::name(s.profile);
-  d["profile_active"] = cc::name(s.profile_active);
-  d["sched_night"] = onoff(s.sched_night);
-  d["sched_away"] = onoff(s.sched_away);
-  d["boost"] = onoff(s.boost);
-  d["boost_remaining_min"] = s.boost_remaining_min;
-  d["operating_mode"] = cc::name(s.operating_mode);
-  d["controller_enable"] = onoff(s.controller_enable);
-  d["controller_state"] = cc::name(s.controller_state);
-  d["heating_phase"] = cc::name(s.heating_phase);
-  d["ventilation_state"] = cc::name(s.ventilation_state);
-  d["heating_reason"] = cc::name(s.heating_reason);
-  d["failsafe_reason"] = cc::name(s.failsafe_reason);
-  fnum(d, "pid_output", s.pid_output, 1);
-  fnum(d, "heat_demand", s.heat_demand, 1);
-  fnum(d, "manual_heat_demand", s.manual_heat_demand, 0);
-  fnum(d, "pid_error", s.pid_error);
-  fnum(d, "pid_p", s.pid_p, 1);
-  fnum(d, "pid_i", s.pid_i, 1);
-  fnum(d, "pid_d", s.pid_d, 1);
-  d["pid_saturation"] = cc::name(s.pid_saturation);
-  d["anti_windup_active"] = onoff(s.anti_windup_active);
-  d["pid_tracking"] = onoff(s.pid_tracking);
-  fnum(d, "r1_duty", s.r1_duty, 1);
-  fnum(d, "r2_duty", s.r2_duty, 1);
-  d["power_stage"] = s.power_stage;
-  fnum(d, "stage2_on", c.stage2_on, 0);
-  fnum(d, "stage2_off", c.stage2_off, 0);
-  fnum(d, "temperature_rate", s.temperature_rate, 1);
+  d["password_set"] = auth::passwordSet();
+  d["service_remaining_s"] = f.svc_remaining_s;
+  d["ota_password_set"] = net::otaPasswordSet();   // false: OTA parolasız açık → UI kalıcı uyarı
+  d["ota_ready"] = ns.ota_ready;
   static const char* const outs[4] = {"r1", "r2", "heater_fan", "ventilation_fan"};
   char k[40];
   for (uint8_t i = 0; i < 4; ++i) {
-    snprintf(k, sizeof k, "%s_active", outs[i]); d[k] = onoff(s.active[i]);
-    snprintf(k, sizeof k, "%s_reason", outs[i]); d[k] = cc::name(s.reason[i]);
-    snprintf(k, sizeof k, "%s_switch_count", outs[i]); d[k] = sw[i];
-    snprintf(k, sizeof k, "%s_hours_total", outs[i]); d[k] = (float)(on_ms[i] / 36000ULL) / 100.0f;
-    snprintf(k, sizeof k, "svc_test_%s", outs[i]); d[k] = onoff(svc[i]);
+    snprintf(k, sizeof k, "%s_switch_count", outs[i]); d[k] = f.sw[i];
+    snprintf(k, sizeof k, "%s_hours_total", outs[i]); d[k] = (float)(f.on_ms[i] / 36000ULL) / 100.0f;
+    snprintf(k, sizeof k, "svc_test_%s", outs[i]); d[k] = onoff(f.svc[i]);
   }
-  d["heating_active"] = onoff(s.heating_active);
-  d["ventilation_active"] = onoff(s.ventilation_active);
-  d["heater_fan_manual"] = onoff(s.heater_fan_manual);
-  d["ventilation_fan_manual"] = onoff(s.ventilation_fan_manual);
-  d["post_cool_remaining_s"] = s.post_cool_remaining_s;
   JsonArray vs = d["vent_sources"].to<JsonArray>();
   static const char* const vn[5] = {"TEMP_HIGH", "HUMIDITY_HIGH", "MANUAL", "SCHEDULED", "OVERTEMP"};
-  for (uint8_t i = 0; i < 5; ++i) if (vsrc & (1u << i)) vs.add(vn[i]);
-  fnum(d, "ventilation_start_effective", s.ventilation_start_effective, 1);
-  fnum(d, "ventilation_start_temperature", c.ventilation_start_temperature, 1);
-  fnum(d, "ventilation_stop_temperature", c.ventilation_stop_temperature, 1);
-  fnum(d, "humidity_high_limit", c.humidity_high_limit, 0);
-  fnum(d, "humidity_hysteresis", c.humidity_hysteresis, 0);
-  d["humidity_vent_while_heating"] = c.humidity_vent_while_heating == cc::HumVentWhileHeating::INHIBIT ? "INHIBIT" : "ALLOW";
-  d["manual_vent_priority"] = c.manual_vent_priority == cc::ManualVentPriority::VENT_WINS ? "VENT_WINS" : "HEAT_WINS";
-  d["overtemperature"] = onoff(s.overtemperature);
-  d["alarm"] = onoff(s.alarm);
-  d["alarm_state"] = cc::name(s.alarm_state);
-  d["active_alarm_count"] = s.active_alarm_count;
-  d["unacked_alarm_count"] = s.unacked_alarm_count;
-  d["local_lock"] = onoff(s.local_lock);
-  d["last_command_source"] = cc::name(s.last_command_source);
-  d["ack_count"] = s.ack_count;
-  d["programs_enabled"] = onoff(s.programs_enabled);
-  d["program_active"] = prog;
-  if (s.program_index >= 0 && s.program_until >= 0) { char iso[24]; isoLocal(s.program_until, iso); d["program_until"] = iso; }
-  else d["program_until"] = "";
-  d["program_held"] = onoff(s.program_held);
+  for (uint8_t i = 0; i < 5; ++i) if (f.vsrc & (1u << i)) vs.add(vn[i]);
   d["free_heap"] = ESP.getFreeHeap();
   d["min_heap"] = ESP.getMinFreeHeap();
   d["control_loop_max_ms"] = (ts.max_us[2] + 999) / 1000;
@@ -248,8 +173,17 @@ void handleData() {
   d["ap_clients"] = ns.ap_clients;
   d["sta_ip"] = ns.sta_ip;
   d["static_ip"] = nc.st;
-  fnum(d, "sensor_error_rate_10m", err_rate, 0);
+  fnum(d, "sensor_error_rate_10m", f.err_rate, 0);
   d["sensor_model"] = "DHT22";
+  {
+    const storage::Status st = storage::status();
+    d["config_rev"] = st.config_rev;
+    d["boot_count"] = st.boots;
+    d["storage_ok"] = st.fs_ok && !st.config_corrupt;
+    d["storage_saves"] = st.saves;
+    d["storage_errors"] = st.errors;
+    d["storage_note"] = st.last_error;
+  }
   replyJson(200, doc);
 }
 
@@ -330,50 +264,226 @@ void settingsGet() {
   d["dns1"] = n.d1;
   d["dns2"] = n.d2;
   d["ntp_server"] = n.ntp;
+  {
+    char slug[24];
+    mqttcfg::slug(slug);   // MQTT_INTEGRATION §2: kulube_iklim_ + MAC son 3 bayt
+    d["slug"] = slug;
+  }
+  {
+    const cc::LedConfig lc = leds::config();
+    d["ledB"] = lc.brightness;
+    char key[5], hex[8];
+    for (uint8_t i = 0; i < cc::kLedCount; ++i)
+      for (uint8_t k = 0; k < cc::kLedStates; ++k) {
+        snprintf(key, sizeof key, "%s%u", cc::ledGroup(i).key, (unsigned)k);
+        cc::formatHexColor(lc.color[i][k], hex);
+        d[key] = hex;
+      }
+    d["ledOk"] = leds::driverOk();
+  }
+  {
+    const mqttcfg::Settings ms = mqttcfg::settings();
+    d["mqtt_host"] = ms.host;
+    d["mqtt_port"] = ms.port;
+    d["mqtt_user"] = ms.user;
+    d["mqtt_base"] = ms.base;
+    d["mqPwSet"] = mqttcfg::passSet();
+    char sl[24], tb[128];
+    mqttcfg::slug(sl);
+    snprintf(tb, sizeof tb, "%s/%s", ms.base, sl);
+    d["mqtt_topic_base"] = tb;
+  }
+  {
+    const auth::Settings as = auth::settings();
+    d["user"] = as.user;
+    d["guestRead"] = as.guest_read;
+    d["session_hours"] = as.session_h;
+    d["passwordSet"] = auth::passwordSet();
+    d["servicePinSet"] = auth::pinSet();
+  }
   d["ssid"] = ns.ssid;
   d["passSet"] = net::passSet();
   d["otaPasswordSet"] = net::otaPasswordSet();
   d["apName"] = ns.ap_name;
   d["devName"] = n.adn;
   d["ip"] = ns.ip;
-  d["fwVersion"] = kFwVersion;
+  d["fwVersion"] = app::kFwVersion;
   d["fwBuild"] = ui::kUiBuild;
   replyJson(200, doc);
 }
 
-// Yalnız Ağ bölümü + kablosuz kimlik F2.2'de kalıcıdır. Diğer bölümler kalıcı depo (F3) gelene kadar reddedilir.
+// MQTT bölümü: metin alanları mqtt_cfg (NVS "mqtt"), çekirdek alanları (yayın aralıkları, keşif, uzak yetkiler)
+// hem çekirdek konfigürasyonuna hem NVS'e. Aday bütünüyle doğrulanır; hata = hiçbir şey değişmez. Yanıt hata
+// durumunda gönderilmiş olur (false).
+bool mqttSection(JsonDocument& b) {
+  mqttcfg::Settings s = mqttcfg::settings();
+  auto str = [&](const char* key, char* dst, size_t cap) -> bool {
+    if (b[key].isNull()) return true;
+    if (!b[key].is<const char*>() || strlen(b[key].as<const char*>()) >= cap) { replyMsg(400, "Metin çok uzun veya geçersiz.", key); return false; }
+    strcpy(dst, b[key].as<const char*>());
+    return true;
+  };
+  if (!str("mqtt_host", s.host, sizeof s.host) || !str("mqtt_user", s.user, sizeof s.user) || !str("mqtt_base", s.base, sizeof s.base)) return false;
+  if (!b["mqtt_port"].isNull()) {
+    const float v = b["mqtt_port"].as<float>();
+    if (!b["mqtt_port"].is<float>() || v < 1 || v > 65535 || v != floorf(v)) { replyMsg(400, "Broker portu 1–65535 olmalı.", "mqtt_port"); return false; }
+    s.port = (uint16_t)v;
+  }
+  const char* pass = nullptr;
+  if (!b["mqtt_password"].isNull()) {
+    if (!b["mqtt_password"].is<const char*>()) { replyMsg(400, "Geçersiz parola.", "mqtt_password"); return false; }
+    pass = b["mqtt_password"].as<const char*>();
+  }
+  const char* err = nullptr;
+  const char* field = nullptr;
+  if (!mqttcfg::validate(s, pass, &err, &field)) { replyMsg(400, err, field); return false; }
+  cc::Config cur, cand;
+  if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul."); return false; }
+  cur = app::core().config();
+  app::coreUnlock();
+  cand = cur;
+  for (const char* k : mqttcfg::kCoreKeys) {
+    const JsonVariantConst v = b[k];
+    if (v.isNull()) continue;
+    char payload[24];
+    if (v.is<bool>()) strcpy(payload, v.as<bool>() ? "ON" : "OFF");
+    else if (v.is<float>()) snprintf(payload, sizeof payload, "%g", v.as<float>());
+    else { replyMsg(400, "Geçersiz değer.", k); return false; }
+    const cc::SetResult r = cc::setField(cand, k, payload, cc::CmdSource::LOCAL_WEB, cand);
+    if (r.result != cc::CmdResult::ACCEPTED) {
+      char msg[96];
+      snprintf(msg, sizeof msg, "Değer kabul edilmedi (%s).", cc::name(r.code));
+      replyMsg(400, msg, k);
+      return false;
+    }
+  }
+  // Anonim broker'da MQTT'den konfigürasyon yazımı açılamaz (SECURITY)
+  if (cand.remote_config_enabled && !s.user[0]) { replyMsg(400, "Anonim broker’da (kullanıcı adı boş) MQTT’den konfigürasyon yazımı açılamaz.", "remote_config_enabled"); return false; }
+  if (!mqttcfg::apply(s, pass, cand, &err, &field)) { replyMsg(field ? 400 : 507, err, field); return false; }
+  bool changed = false;
+  for (const char* k : mqttcfg::kCoreKeys) {
+    const cc::FieldInfo* f = cc::findField(k);
+    if (f && cc::fieldValue(cand, *f) != cc::fieldValue(cur, *f)) changed = true;
+  }
+  if (changed) {
+    cc::CmdReply r;
+    if (!app::coreLock(200)) { replyMsg(503, "Kaydedildi ancak çekirdek meşgul; yeniden başlatmada uygulanacak."); return false; }
+    r = app::core().applyConfig(cand, cc::CmdSource::LOCAL_WEB);
+    app::coreUnlock();
+    if (r.result != cc::CmdResult::ACCEPTED) { replyMsg(409, "Kaydedildi ancak çalışan konfigürasyona uygulanamadı; yeniden başlatmada uygulanacak."); return false; }
+  }
+  return true;
+}
+
+// Ayarlar bölüm bölüm kaydedilir (UI her sekmeyi ayrı gönderir): gövde yalnız o bölümün alanlarını taşır,
+// gövdede olmayan alan korunur. Ağ + kablosuz kimlik ve LED F2'de kalıcıdır; diğer bölümler kalıcı depo (F3)
+// gelene kadar değişen değerde reddedilir. Bir bölümün reddi başka bölümün kaydını engellemez.
 void settingsPost() {
   if (!writeOk()) return;
   JsonDocument b;
   if (!body(b)) return;
   static const char* const netKeys[] = {"adN", "mdns", "staticEnabled", "staticIP", "gateway", "subnet", "dns1",
                                         "dns2", "ntp_server", "ssid", "pass", "clearWifiPassword"};
+  bool anyNet = false, anyLed = false, anyMqtt = false, anyCore = false, anyAccess = false, needReboot = false;
+  cc::Config coreCur, coreCand;
+  cc::LedConfig lc = leds::config();
   for (JsonPair kv : b.as<JsonObject>()) {
     bool known = false;
     for (const char* k : netKeys) if (!strcmp(kv.key().c_str(), k)) { known = true; break; }
-    if (known) continue;
+    if (known) { anyNet = true; continue; }
+    if (mqttcfg::isStringKey(kv.key().c_str()) || mqttcfg::isCoreKey(kv.key().c_str())) { anyMqtt = true; continue; }
+    if (!strcmp(kv.key().c_str(), "user") || !strcmp(kv.key().c_str(), "guestRead") || !strcmp(kv.key().c_str(), "session_hours")) { anyAccess = true; continue; }
+    uint8_t li = 0, ls = 0;
+    if (!strcmp(kv.key().c_str(), "ledB")) {
+      const float v = kv.value().as<float>();
+      if (!kv.value().is<float>() || v < 0 || v > 100 || v != floorf(v)) { replyMsg(400, "LED parlaklığı %0–100 tam sayı olmalı.", "ledB"); return; }
+      lc.brightness = (uint8_t)v;
+      anyLed = true;
+      continue;
+    }
+    if (cc::ledColorKey(kv.key().c_str(), li, ls)) {
+      uint32_t rgb = 0;
+      if (!cc::parseHexColor(kv.value().as<const char*>(), rgb)) { replyMsg(400, "LED rengi #rrggbb biçiminde olmalı.", kv.key().c_str()); return; }
+      lc.color[li][ls] = rgb;
+      anyLed = true;
+      continue;
+    }
     const cc::FieldInfo* f = cc::findField(kv.key().c_str());
     if (!f) {
-      // Bu yazılımda henüz karşılığı olmayan UI alanları (MQTT F5, erişim F4 …): GET bunları göndermez,
+      // Bu yazılımda henüz karşılığı olmayan UI alanları (erişim F4 …): GET bunları göndermez,
       // form boş/varsayılan gönderir. Dolu gelen değer sessizce yok sayılmaz, reddedilir.
       const JsonVariantConst v = kv.value();
       const bool empty = v.isNull() || (v.is<const char*>() && !*v.as<const char*>()) || (v.is<bool>() && !v.as<bool>()) ||
                          (v.is<float>() && v.as<float>() == 0.0f);
       if (empty) continue;
-      replyMsg(409, "Bu ayar sonraki fazda (MQTT F5, erişim F4) etkinleşecek; şimdilik kaydedilemez.", kv.key().c_str());
+      replyMsg(409, "Bu ayar sonraki fazda (erişim F4) etkinleşecek; şimdilik kaydedilemez.", kv.key().c_str());
       return;
     }
-    // Değişmeyen değerler (form tüm alanları gönderir) kabul; değişen değer F3'e kadar kaydedilemez
-    cc::Config c;
-    if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul."); return; }
-    c = app::core().config();
+    // Çekirdek konfigürasyon alanı (Sensörler/Kontrol/Güvenlik): adaya işlenir; tamamı doğrulanınca uygulanır
+    if (!anyCore) {
+      if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul."); return; }
+      coreCur = app::core().config();
+      app::coreUnlock();
+      coreCand = coreCur;
+      anyCore = true;
+    }
+    char payload[32];
+    const JsonVariantConst v = kv.value();
+    if (v.is<bool>()) strcpy(payload, v.as<bool>() ? "ON" : "OFF");
+    else if (v.is<float>()) snprintf(payload, sizeof payload, "%.6g", v.as<float>());
+    else if (v.is<const char*>()) snprintf(payload, sizeof payload, "%s", v.as<const char*>());
+    else { replyMsg(400, "Geçersiz değer.", kv.key().c_str()); return; }
+    const cc::SetResult r = cc::setField(coreCand, kv.key().c_str(), payload, cc::CmdSource::LOCAL_WEB, coreCand);
+    if (r.result != cc::CmdResult::ACCEPTED) {
+      char msg[120];
+      if (r.result == cc::CmdResult::REJECTED_RELATION)
+        snprintf(msg, sizeof msg, "Alanlar arası kural ihlali (V%u, %s). İlişkili alanları birlikte düzeltin.", (unsigned)r.rule, cc::name(r.code));
+      else snprintf(msg, sizeof msg, "Değer kabul edilmedi (%s).", cc::name(r.code));
+      replyMsg(400, msg, kv.key().c_str());
+      return;
+    }
+    if (f->flags & cc::CF_REBOOT && cc::fieldValue(coreCand, *f) != cc::fieldValue(coreCur, *f)) needReboot = true;
+  }
+  if (anyCore) {
+    // Adayın tamamı (V1–V17 + programlar) çekirdekte doğrulanır; hata = hiçbir alan uygulanmaz
+    cc::CmdReply r;
+    if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+    r = app::core().applyConfig(coreCand, cc::CmdSource::LOCAL_WEB);
     app::coreUnlock();
-    const float cur = cc::fieldValue(c, *f);
-    bool same = false;
-    if (f->kind == cc::FieldKind::ENUM) same = kv.value().is<const char*>() && (uint8_t)cur < f->enumCount && !strcmp(kv.value().as<const char*>(), f->enumNames[(uint8_t)cur]);
-    else if (f->kind == cc::FieldKind::BOOL) same = kv.value().as<bool>() == (cur != 0);
-    else same = fabsf(kv.value().as<float>() - cur) < 1e-4f;
-    if (!same) { replyMsg(409, "Bu ayar kalıcı ayar deposu (F3) eklenince kaydedilebilecek. Şimdilik yalnız Ağ bölümü ve Wi-Fi kaydedilir.", kv.key().c_str()); return; }
+    if (r.result != cc::CmdResult::ACCEPTED) {
+      char msg[120];
+      snprintf(msg, sizeof msg, "Kaydedilmedi: %s (%s).", cc::name(r.result), cc::name(r.code));
+      replyMsg(409, msg);
+      return;
+    }
+  }
+  if (anyMqtt && !mqttSection(b)) return;
+  if (anyAccess) {
+    auth::Settings as = auth::settings();
+    if (b["user"].is<const char*>()) { strncpy(as.user, b["user"].as<const char*>(), sizeof as.user - 1); as.user[sizeof as.user - 1] = 0; }
+    if (b["guestRead"].is<bool>()) as.guest_read = b["guestRead"].as<bool>();
+    if (!b["session_hours"].isNull()) {
+      const float h = b["session_hours"].as<float>();
+      if (h < 1 || h > 24 || h != floorf(h)) { replyMsg(400, "Oturum süresi 1–24 saat olmalı.", "session_hours"); return; }
+      as.session_h = (uint8_t)h;
+    }
+    const char* err = nullptr;
+    const char* field = nullptr;
+    if (!auth::applySettings(as, &err, &field)) { replyMsg(field ? 400 : 507, err, field); return; }
+  }
+  const net::Status ns = net::status();   // net_try tabanı: UI bu değerden büyük denemenin sonucunu bekler
+  if (!anyNet) {
+    const char* err = nullptr;
+    if (anyLed && !leds::apply(lc, &err)) { replyMsg(507, err); return; }
+    JsonDocument d;
+    d["message"] = anyAccess ? "Erişim ayarları kaydedildi" : anyCore ? (needReboot ? "Kaydedildi. Bu değişiklik yeniden başlatmadan sonra geçerli olur." : "Kaydedildi")
+                   : anyLed ? "LED ayarları kaydedildi"
+                   : anyMqtt ? "MQTT ayarları kaydedildi. Bağlantı yeni ayarlarla yeniden kuruluyor; sonuç MQTT durumunda görünür."
+                             : "Kaydedildi";
+    d["reconnect"] = false;
+    d["net_try_base"] = ns.try_seq;
+    replyJson(200, d);
+    return;
   }
   net::NetSettings n = net::settings();
   auto str = [&](const char* key, char* dst, size_t cap) {
@@ -394,12 +504,12 @@ void settingsPost() {
   const char* pass = b["pass"].is<const char*>() ? b["pass"].as<const char*>() : nullptr;
   if (b["clearWifiPassword"] | false) pass = "";
   // Kimliği değiştirmeyen tekrar gönderim (ana formdaki mevcut SSID) kimlik yazımı sayılmaz
-  const net::Status ns = net::status();   // net_try tabanı: UI bu değerden büyük denemenin sonucunu bekler
   if (ssid && !pass && !strcmp(ssid, ns.ssid)) ssid = nullptr;
   const char* err = nullptr;
   const char* field = nullptr;
   bool reconnect = false;
   if (!net::apply(n, ssid, pass, &err, &field, &reconnect)) { replyMsg(field ? 400 : 507, err, field); return; }
+  if (anyLed && !leds::apply(lc, &err)) { replyMsg(507, err); return; }
   // Kayıt ≠ bağlantı: yanıt yalnız kalıcı kaydı onaylar; bağlantı sonucu /api/data net_try/net_result ile izlenir
   char msg[160];
   if (ssid) snprintf(msg, sizeof msg, "Ayarlar kaydedildi. Cihaz “%s” ağına bağlanmayı deneyecek.", ssid);
@@ -409,6 +519,22 @@ void settingsPost() {
   d["message"] = msg;
   d["reconnect"] = reconnect;
   d["net_try_base"] = ns.try_seq;
+  replyJson(200, d);
+}
+
+// OTA parolası: ayrı form (Ayarlar › Erişim). "" = kaldır → OTA parolasız açık kalır (D-17, F2.5).
+// Yeni parola OTA sunucusu yeniden kurulunca (yeniden başlatmadan) geçerli olur.
+void handleOtaPassword() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  if (!b["password"].is<const char*>()) { replyMsg(400, "password alanı gerekli (boş = parolayı kaldır).", "otaPw"); return; }
+  const char* pw = b["password"].as<const char*>();
+  const char* err = nullptr;
+  if (!net::setOtaPassword(pw, &err)) { replyMsg(pw[0] ? 400 : 507, err, "otaPw"); return; }
+  JsonDocument d;
+  d["message"] = pw[0] ? "OTA parolası kaydedildi; yüklemede --auth gerekir." : "OTA parolası kaldırıldı; OTA parolasız açık.";
+  d["otaPasswordSet"] = pw[0] != 0;
   replyJson(200, d);
 }
 
@@ -466,6 +592,24 @@ void handleEvents() {
   JsonDocument doc;
   JsonArray a = doc["events"].to<JsonArray>();
   char msg[64];
+  // Önceki açılışlardan kalıcı WARNING+ olaylar (F3): epoch kayıt anında damgalandı
+  static cc::Event pe[cc::kPersistEvents];
+  static int64_t pts[cc::kPersistEvents];
+  const uint8_t np = storage::persistedEvents(pe, pts, cc::kPersistEvents);
+  for (uint8_t i = 0; i < np; ++i) {
+    const cc::Event& e = pe[i];
+    JsonObject o = a.add<JsonObject>();
+    o["seq"] = e.seq;
+    o["up"] = e.up_s;
+    if (pts[i]) o["ts"] = pts[i]; else o["ts"] = nullptr;
+    o["sev"] = cc::name(e.sev);
+    o["src"] = cc::name(e.src);
+    if (std::isnan(e.val)) snprintf(msg, sizeof msg, "%s", cc::name(e.code));
+    else snprintf(msg, sizeof msg, "%s %.2f", cc::name(e.code), e.val);
+    o["msg"] = msg;
+    if (e.actor != cc::CmdSource::SYSTEM) o["actor"] = cc::name(e.actor);
+    o["prev_boot"] = true;
+  }
   for (uint16_t i = 0; i < n; ++i) {
     const cc::Event& e = g_ev[i];
     JsonObject o = a.add<JsonObject>();
@@ -584,7 +728,400 @@ void handlePrograms() {
   replyJson(200, doc);
 }
 
-void notYet() { replyMsg(501, "Bu işlev F4'te etkinleşecek (oturum, parola, trend, servis, web OTA)."); }
+// ================================================================ F4: erişim, oturum, servis, programlar, trend, OTA
+enum class Lvl : uint8_t { PUBLIC, VIEW, ADMIN };
+
+uint32_t clientIp() { return (uint32_t)g_srv.client().remoteIP(); }
+
+// Çerezden oturum belirteci ("sid=<32 hex>")
+bool cookieToken(char out[33]) {
+  const String c = g_srv.header("Cookie");
+  const int i = c.indexOf("sid=");
+  if (i < 0) return false;
+  const String t = c.substring(i + 4, i + 4 + 32);
+  if (t.length() != 32) return false;
+  strcpy(out, t.c_str());
+  return true;
+}
+
+// Parola tanımsızsa cihaz açıktır (kalıcı uyarı). Tanımlıysa: oturum; misafir okuma açıksa VIEW uçları serbest.
+bool authorize(Lvl l) {
+  if (l == Lvl::PUBLIC || !auth::passwordSet()) return true;
+  char t[33];
+  if (cookieToken(t) && auth::check(t, nullptr)) return true;
+  if (l == Lvl::VIEW && auth::settings().guest_read) return true;
+  JsonDocument d;
+  d["message"] = "Oturum gerekli. Oturum sayfasından giriş yapın.";
+  d["login"] = true;
+  replyJson(401, d);
+  return false;
+}
+
+using Fn = void (*)();
+std::function<void()> G(Lvl l, Fn fn) {
+  return [l, fn]() { if (authorize(l)) fn(); };
+}
+
+void note(cc::Severity s, cc::EvSrc src, cc::EvCode c, float v) {
+  if (app::coreLock(50)) { app::core().noteEvent(s, src, c, v, cc::CmdSource::LOCAL_WEB); app::coreUnlock(); }
+}
+
+// ---------------------------------------------------------------- oturum
+void handleLogin() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  if (!auth::passwordSet()) { replyMsg(409, "Web parolası tanımlı değil; giriş gerekmiyor. Ayarlar › Erişim'den parola belirleyin."); return; }
+  char tok[33];
+  uint32_t ttl = 0, lock = 0;
+  const auth::Login r = auth::login(b["user"] | "", b["password"] | "", clientIp(), b["remember"] | false, tok, ttl, lock);
+  if (r != auth::Login::OK) {
+    note(cc::Severity::WARNING, cc::EvSrc::SYSTEM, cc::EvCode::AUTH_FAIL, (float)(clientIp() >> 24));
+    char m[96];
+    if (r == auth::Login::LOCKED) snprintf(m, sizeof m, "Çok fazla hatalı deneme. %u sn sonra yeniden deneyin.", (unsigned)lock);
+    else snprintf(m, sizeof m, "Kullanıcı adı veya parola yanlış.");
+    replyMsg(r == auth::Login::LOCKED ? 429 : 401, m);
+    return;
+  }
+  char ck[120];
+  snprintf(ck, sizeof ck, "sid=%s; Path=/; HttpOnly; SameSite=Strict; Max-Age=%u", tok, (unsigned)ttl);
+  g_srv.sendHeader("Set-Cookie", ck);
+  replyMsg(200, "Giriş yapıldı");
+}
+
+void handleLogout() {
+  if (!writeOk()) return;
+  char t[33];
+  if (cookieToken(t)) auth::logout(t);
+  g_srv.sendHeader("Set-Cookie", "sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+  replyMsg(200, "Çıkış yapıldı");
+}
+
+void handleSession() {
+  JsonDocument d;
+  const bool pw = auth::passwordSet();
+  char t[33];
+  uint32_t exp = 0;
+  const bool in = pw && cookieToken(t) && auth::check(t, &exp);
+  const auth::Settings s = auth::settings();
+  d["password_set"] = pw;
+  d["guest_read"] = s.guest_read;
+  d["auth"] = in || !pw;
+  if (in) {
+    d["user"] = s.user;
+    d["role"] = "admin";
+    char e[40];
+    if (exp >= 86400) snprintf(e, sizeof e, "%u gün kaldı", (unsigned)(exp / 86400));
+    else snprintf(e, sizeof e, "%u sa %u dk kaldı", (unsigned)(exp / 3600), (unsigned)(exp % 3600 / 60));
+    d["expires"] = e;
+  } else d["user"] = nullptr;
+  replyJson(200, d);
+}
+
+void handlePassword() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  const char* pw = b["password"] | "";
+  const char* err = nullptr;
+  uint32_t lock = 0;
+  if (!auth::setPassword(b["oldPassword"] | "", pw, clientIp(), &err, &lock)) { replyMsg(lock ? 429 : 400, err); return; }
+  note(cc::Severity::WARNING, cc::EvSrc::SYSTEM, cc::EvCode::PASSWORD_CHANGED, pw[0] ? 1.f : 0.f);
+  g_srv.sendHeader("Set-Cookie", "sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+  replyMsg(200, pw[0] ? "Parola kaydedildi; bütün oturumlar kapatıldı. Yeniden giriş yapın." : "Web parola koruması kaldırıldı.");
+}
+
+// ---------------------------------------------------------------- servis
+void handleServicePin() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  const char* err = nullptr;
+  if (!auth::setPin(b["pin"] | "", &err)) { replyMsg(400, err); return; }
+  replyMsg(200, "Servis PIN'i kaydedildi");
+}
+
+void handleServiceEnter() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  if (!auth::pinSet()) { replyMsg(409, "Servis PIN'i tanımlı değil. Ayarlar › Erişim'den PIN belirleyin."); return; }
+  uint32_t lock = 0;
+  if (!auth::verifyPin(b["pin"] | "", clientIp(), &lock)) {
+    char m[80];
+    if (lock) snprintf(m, sizeof m, "Çok fazla hatalı deneme. %u sn sonra yeniden deneyin.", (unsigned)lock);
+    else snprintf(m, sizeof m, "Servis PIN'i yanlış.");
+    replyMsg(lock ? 429 : 403, m);
+    return;
+  }
+  cc::CmdReply r;
+  if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+  r = app::core().serviceEnter(cc::CmdSource::LOCAL_SERVICE);
+  app::coreUnlock();
+  if (r.result != cc::CmdResult::ACCEPTED) { replyMsg(409, "Servis moduna girilemedi: ısıtma veya soğutma sürüyor. Modu KAPALI yapıp soğutmanın bitmesini bekleyin."); return; }
+  replyMsg(200, "Servis modu etkin");
+}
+
+void handleServiceExit() {
+  if (!writeOk()) return;
+  cc::CmdReply r;
+  if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+  r = app::core().serviceExit(cc::CmdSource::LOCAL_SERVICE);
+  app::coreUnlock();
+  replyMsg(r.result == cc::CmdResult::ACCEPTED ? 200 : 409, r.result == cc::CmdResult::ACCEPTED ? "Servis modundan çıkıldı" : "Servis modunda değil");
+}
+
+void handleServiceTest() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  const int out = b["out"] | -1;
+  if (out < 0 || out > 3) { replyMsg(400, "Geçersiz çıkış."); return; }
+  cc::CmdReply r;
+  if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+  r = app::core().serviceTest((uint8_t)out, b["on"] | false, cc::CmdSource::LOCAL_SERVICE);
+  app::coreUnlock();
+  if (r.result != cc::CmdResult::ACCEPTED && r.result != cc::CmdResult::OVERRIDDEN) {
+    char m[96];
+    snprintf(m, sizeof m, "Çıkış testi reddedildi (%s%s%s).", cc::name(r.result), r.reason != cc::Reason::NONE ? ", " : "",
+             r.reason != cc::Reason::NONE ? cc::name(r.reason) : "");
+    replyMsg(409, m);
+    return;
+  }
+  replyMsg(200, "Test komutu uygulandı");
+}
+
+void handleResetCounters() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  const char* o = b["out"] | "";
+  static const char* const names[4] = {"r1", "r2", "heater_fan", "ventilation_fan"};
+  uint8_t mask = !strcmp(o, "all") ? 0x0F : 0;
+  for (uint8_t i = 0; i < 4; ++i) if (!strcmp(o, names[i])) mask = (uint8_t)(1u << i);
+  if (!mask) { replyMsg(400, "Geçersiz çıkış seçimi."); return; }
+  cc::CmdReply r;
+  if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+  r = app::core().resetCounters(mask, cc::CmdSource::LOCAL_WEB);
+  app::coreUnlock();
+  if (r.result != cc::CmdResult::ACCEPTED) { replyMsg(409, cc::name(r.result)); return; }
+  storage::flushNow(1500);   // sıfırlama güç kesintisinde geri dönmesin
+  replyMsg(200, "Sayaçlar sıfırlandı; önceki değer olay günlüğüne yazıldı");
+}
+
+// ---------------------------------------------------------------- programlar (liste atomik, PROGRAMS §5.1)
+template <typename E, uint8_t N>
+bool parseEnum(const char* s, E& out) {
+  for (uint8_t i = 0; i < N; ++i) if (s && !strcmp(s, cc::name((E)i))) { out = (E)i; return true; }
+  return false;
+}
+int16_t parseHm(const char* s) {
+  int h = 0, m = 0;
+  if (!s || sscanf(s, "%d:%d", &h, &m) != 2 || h < 0 || h > 23 || m < 0 || m > 59) return -1;
+  return (int16_t)(h * 60 + m);
+}
+
+void handleProgramsPost() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  JsonArrayConst a = b["list"].as<JsonArrayConst>();
+  if (a.isNull() || a.size() > cc::kMaxPrograms) { JsonDocument d; d["code"] = "TOO_MANY"; d["index"] = -1; d["message"] = "Program listesi reddedildi: TOO_MANY"; replyJson(400, d); return; }
+  static cc::Program list[cc::kMaxPrograms];
+  uint8_t n = 0;
+  const char* code = nullptr;
+  int idx = -1;
+  for (JsonObjectConst o : a) {
+    cc::Program p;
+    const char* nm = o["name"] | "";
+    while (*nm == ' ') ++nm;
+    strncpy(p.name, nm, sizeof p.name - 1);
+    p.name[sizeof p.name - 1] = 0;
+    for (int k = (int)strlen(p.name) - 1; k >= 0 && p.name[k] == ' '; --k) p.name[k] = 0;
+    p.enabled = o["enabled"] | true;
+    if (strlen(nm) > cc::kProgNameMax) code = "NAME";
+    if (!code && !parseEnum<cc::ProgKind, 3>(o["kind"] | "", p.kind)) code = "DAYS";
+    p.days = (uint8_t)(o["days"] | 0);
+    if (!code && p.kind != cc::ProgKind::WEEKLY) {
+      if (!cc::parseDate(o["date_from"] | "", p.date_from)) code = "DATE_ORDER";
+      p.date_to = p.date_from;
+      if (!code && p.kind == cc::ProgKind::DATE_RANGE && !cc::parseDate(o["date_to"] | "", p.date_to)) code = "DATE_ORDER";
+    }
+    if (!code && !parseEnum<cc::ProgEnd, 3>(o["end"] | "", p.end)) code = "END";
+    if (!code && p.end != cc::ProgEnd::ALL_DAY) { const int16_t s = parseHm(o["start"] | ""); if (s < 0) code = "START"; else p.start_min = (uint16_t)s; }
+    if (!code && p.end == cc::ProgEnd::END_TIME) { const int16_t e = parseHm(o["end_time"] | ""); if (e < 0) code = "END"; else p.end_min = (uint16_t)e; }
+    p.duration_min = (uint16_t)(o["duration"] | 60);
+    if (!code && !parseEnum<cc::ProgAction, 4>(o["action"] | "", p.action)) code = "PROFILE";
+    p.setpoint = o["setpoint"] | 21.0f;
+    if (!code && p.action == cc::ProgAction::PROFILE && !parseEnum<cc::ProfileSel, 4>(o["profile"] | "", p.profile)) code = "PROFILE";
+    if (code) { idx = n; break; }
+    list[n++] = p;
+  }
+  if (!code) {
+    float lim = 40;
+    if (app::coreLock(100)) { lim = app::core().config().cabin_overtemp_limit; app::coreUnlock(); }
+    const cc::ProgValidation v = cc::validatePrograms(list, n, lim);
+    if (!v.ok()) { code = cc::name(v.err); idx = v.index; }
+  }
+  if (code) {
+    JsonDocument d;
+    d["code"] = code;
+    d["index"] = idx;
+    char m[64];
+    snprintf(m, sizeof m, "Program listesi reddedildi: %s", code);
+    d["message"] = m;
+    replyJson(400, d);
+    return;
+  }
+  cc::CmdReply r;
+  if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+  r = app::core().setPrograms(list, n, cc::CmdSource::LOCAL_WEB);
+  app::coreUnlock();
+  if (r.result != cc::CmdResult::ACCEPTED) { replyMsg(409, cc::name(r.result)); return; }
+  replyMsg(200, "Kaydedildi");
+}
+
+// ---------------------------------------------------------------- trend (akış: büyük dizi RAM'de JSON belgesi olmaz)
+void handleTrend() {
+  uint32_t win = (uint32_t)g_srv.arg("win").toInt();
+  if (win < 60) win = 900;
+  if (win > 86400) win = 86400;
+  const size_t cap = trend::maxSamples();
+  trend::Sample* s = static_cast<trend::Sample*>(malloc(sizeof(trend::Sample) * cap));
+  if (!s) { replyMsg(503, "Bellek yetersiz."); return; }
+  uint32_t res = 5, age = 0;
+  const size_t n = trend::read(win, s, cap, res, age);
+  const bool clock = net::clockValid();
+  const int64_t tlast = clock ? (int64_t)time(nullptr) - age : (int64_t)(millis() / 1000) - age;
+  headers(true);
+  g_srv.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  g_srv.send(200, "application/json", "");
+  char buf[1100];
+  size_t bl = 0;
+  auto out = [&](const char* x) {
+    const size_t l = strlen(x);
+    if (bl + l >= sizeof buf) { g_srv.sendContent(buf, bl); bl = 0; }
+    memcpy(buf + bl, x, l);
+    bl += l;
+  };
+  char v[24];
+  snprintf(v, sizeof v, "{\"res\":%u,\"clock\":%s", (unsigned)res, clock ? "true" : "false");
+  out(v);
+  const char* keys[6] = {"t", "T", "SP", "RH", "D", "B"};
+  for (int k = 0; k < 6; ++k) {
+    snprintf(v, sizeof v, ",\"%s\":[", keys[k]);
+    out(v);
+    for (size_t i = 0; i < n; ++i) {
+      const trend::Sample& x = s[i];
+      switch (k) {
+        case 0: snprintf(v, sizeof v, "%lld", (long long)(tlast - (int64_t)(n - 1 - i) * res)); break;
+        case 1: if (x.t10 == trend::kNoT) strcpy(v, "null"); else snprintf(v, sizeof v, "%.1f", x.t10 / 10.0); break;
+        case 2: if (x.sp10 == trend::kNoT) strcpy(v, "null"); else snprintf(v, sizeof v, "%.1f", x.sp10 / 10.0); break;
+        case 3: if (x.rh10 == trend::kNoRh) strcpy(v, "null"); else snprintf(v, sizeof v, "%.1f", x.rh10 / 10.0); break;
+        case 4: snprintf(v, sizeof v, "%.1f", x.d2 / 2.0); break;
+        default: snprintf(v, sizeof v, "%u", (unsigned)x.b); break;
+      }
+      if (i) out(",");
+      out(v);
+    }
+    out("]");
+  }
+  out(clock ? ",\"boot_note\":\"\"}" : ",\"boot_note\":\"saat bekleniyor: zaman ekseni çalışma süresidir\"}");
+  if (bl) g_srv.sendContent(buf, bl);
+  g_srv.sendContent("");
+  free(s);
+}
+
+// ---------------------------------------------------------------- web OTA (hazırlık + ham gövde)
+bool otaPasswordOk(const char* pw) {
+  if (!net::otaPasswordSet()) return true;             // parolasız OTA (uyarılı, D-17)
+  return net::otaPasswordCheck(pw ? pw : "");
+}
+
+// 1. adım: parola + boyut denetimi, güvenli duruş (OTA_PREP). ready=false → UI 2 s aralıkla yineler
+void handleOtaBegin() {
+  if (!writeOk()) return;
+  JsonDocument b;
+  if (!body(b)) return;
+  if (!otaPasswordOk(b["password"] | "")) { replyMsg(403, "OTA parolası yanlış."); return; }
+  const uint32_t size = b["size"] | 0;
+  const esp_partition_t* part = esp_ota_get_next_update_partition(nullptr);
+  if (!part || size < 100000 || size > part->size) { replyMsg(400, "İmaj boyutu geçersiz veya OTA bölümüne sığmıyor."); return; }
+  bool ready = false;
+  cc::CmdReply r;
+  if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+  if (!app::core().otaReady()) r = app::core().otaBegin(cc::CmdSource::LOCAL_WEB);   // hazırlıkta yinelenirse zararsız ret
+  ready = app::core().otaReady();
+  app::coreUnlock();
+  if (!ready && r.reason == cc::Reason::ANTIFREEZE_INHIBIT) { replyMsg(409, "Donma riski: kulübe sıcaklığı donma korumasına yakın, güncelleme şimdi yapılamaz."); return; }
+  JsonDocument d;
+  d["ready"] = ready;
+  d["message"] = ready ? "Cihaz güncellemeye hazır; imaj yükleniyor." : "Hazırlanıyor: ısıtma durduruldu, fan soğutması bitince yükleme başlayacak.";
+  replyJson(200, d);
+}
+
+struct OtaUp { bool active = false, ok = false; const char* err = nullptr; size_t written = 0; };
+OtaUp g_up;
+
+void otaRaw() {
+  HTTPRaw& r = g_srv.raw();
+  if (r.status == RAW_START) {
+    g_up = OtaUp();
+    if (!authorize(Lvl::ADMIN)) { g_up.err = "Oturum gerekli."; return; }
+    if (g_srv.header("X-SCADA") != "1") { g_up.err = "İstek reddedildi (X-SCADA başlığı yok)."; return; }
+    if (!otaPasswordOk(g_srv.header("X-OTA-Password").c_str())) { g_up.err = "OTA parolası yanlış."; return; }
+    bool ready = false;
+    if (app::coreLock(200)) { ready = app::core().otaReady(); app::coreUnlock(); }
+    if (!ready) { g_up.err = "Cihaz güncellemeye hazır değil (soğutma sürüyor). Önce hazırlık adımı."; return; }
+    const int len = g_srv.clientContentLength();
+    storage::flushNow(1500);
+    if (len <= 0 || !Update.begin((size_t)len, U_FLASH)) { g_up.err = "Güncelleme başlatılamadı (boyut/bölüm)."; return; }
+    note(cc::Severity::WARNING, cc::EvSrc::SYSTEM, cc::EvCode::OTA_WEB, (float)(len / 1024));
+    g_up.active = true;
+  } else if (r.status == RAW_WRITE && g_up.active) {
+    if (Update.write(r.buf, r.currentSize) != r.currentSize) { g_up.err = "Flash yazımı başarısız."; Update.abort(); g_up.active = false; }
+    else g_up.written += r.currentSize;
+  } else if (r.status == RAW_END && g_up.active) {
+    g_up.active = false;
+    if (Update.end(true)) g_up.ok = true;
+    else g_up.err = "İmaj doğrulanamadı (bozuk veya uyumsuz).";
+  } else if (r.status == RAW_ABORTED && g_up.active) {
+    Update.abort();
+    g_up.active = false;
+    g_up.err = "Yükleme kesildi.";
+  }
+}
+
+void otaDone() {
+  if (g_up.ok) {
+    replyMsg(200, "Güncelleme tamamlandı; cihaz yeniden başlıyor. Sayfa 20–40 sn sonra yeniden bağlanır.");
+    net::requestReboot(1500);
+    return;
+  }
+  if (app::coreLock(200)) { app::core().otaAbort(); app::coreUnlock(); }   // hazırlık geri alınır: kontrol sürer
+  replyMsg(g_up.err && !strncmp(g_up.err, "Oturum", 6) ? 401 : 409, g_up.err ? g_up.err : "Güncelleme başarısız.");
+}
+
+// ---------------------------------------------------------------- fabrika ayarı
+void handleFactoryReset() {
+  if (!writeOk()) return;
+  bool busy = true;
+  if (app::coreLock(200)) {
+    const bool* o = app::core().outputs();
+    busy = o[cc::R1] || o[cc::R2] || app::core().snapshot().post_cool_remaining_s > 0;
+    app::coreUnlock();
+  }
+  if (busy) { replyMsg(409, "Isıtma veya fan soğutması sürüyor. Modu KAPALI yapın ve soğutmanın bitmesini bekleyin."); return; }
+  note(cc::Severity::WARNING, cc::EvSrc::SYSTEM, cc::EvCode::FACTORY_RESET, 0);
+  const bool files = storage::factoryErase(3000);
+  static const char* const ns[] = {"net", "mqtt", "led", "auth"};
+  for (const char* n : ns) { Preferences p; if (p.begin(n, false)) { p.clear(); p.end(); } }
+  auth::factoryErase();
+  replyMsg(200, files ? "Fabrika ayarlarına dönüldü; cihaz kurulum modunda yeniden başlıyor."
+                      : "Ayarlar silindi ancak bazı kayıt dosyaları silinemedi; cihaz yeniden başlıyor.");
+  net::requestReboot(1500);
+}
+
 
 void sendIndex() { sendAsset(ui::kAssets[0]); }
 
@@ -603,6 +1140,8 @@ void handleNotFound() {
 
 }  // namespace
 
+const char* uiBuild() { return ui::kUiBuild; }
+
 void begin() {
   for (size_t i = 0; i < ui::kAssetCount; ++i) {
     const ui::Asset* a = &ui::kAssets[i];
@@ -610,29 +1149,39 @@ void begin() {
   }
   for (const char* p : {"/control", "/programs", "/trends", "/outputs", "/alarms", "/events", "/settings", "/login"})
     g_srv.on(p, HTTP_GET, sendIndex);
-  g_srv.on("/api/data", HTTP_GET, handleData);
-  g_srv.on("/api/cmd", HTTP_POST, handleCmd);
-  g_srv.on("/scan", HTTP_GET, handleScan);
-  g_srv.on("/api/settings", HTTP_GET, settingsGet);
-  g_srv.on("/api/settings", HTTP_POST, settingsPost);
-  g_srv.on("/api/reset-wifi", HTTP_POST, handleResetWifi);
-  g_srv.on("/api/net/retry", HTTP_POST, handleNetRetry);
-  g_srv.on("/api/net/finish", HTTP_POST, handleNetFinish);
-  g_srv.on("/api/reboot", HTTP_POST, handleReboot);
-  g_srv.on("/api/events", HTTP_GET, handleEvents);
-  g_srv.on("/api/alarms", HTTP_GET, handleAlarms);
-  g_srv.on("/api/alarms/ack", HTTP_POST, handleAlarmAck);
-  g_srv.on("/api/alarms/reset", HTTP_POST, handleAlarmReset);
-  g_srv.on("/api/programs", HTTP_GET, handlePrograms);
-  g_srv.on("/api/session", HTTP_GET, []() { JsonDocument d; d["user"] = nullptr; d["auth"] = false; replyJson(200, d); });
-  for (const char* p : {"/api/programs", "/api/login", "/api/logout", "/api/password", "/api/service/enter",
-                        "/api/service/exit", "/api/service/test", "/api/service/pin", "/api/service/reset-counters",
-                        "/api/ota/begin", "/api/factory-reset"})
-    g_srv.on(p, HTTP_POST, notYet);
-  g_srv.on("/api/trend", HTTP_GET, notYet);
+  // Erişim: PUBLIC (oturum/giriş), VIEW (misafir okuma açıksa serbest), ADMIN (oturum). Parola tanımsızsa hepsi açık.
+  g_srv.on("/api/data", HTTP_GET, G(Lvl::VIEW, handleData));
+  g_srv.on("/api/cmd", HTTP_POST, G(Lvl::ADMIN, handleCmd));
+  g_srv.on("/scan", HTTP_GET, G(Lvl::ADMIN, handleScan));
+  g_srv.on("/api/settings", HTTP_GET, G(Lvl::ADMIN, settingsGet));
+  g_srv.on("/api/settings", HTTP_POST, G(Lvl::ADMIN, settingsPost));
+  g_srv.on("/api/reset-wifi", HTTP_POST, G(Lvl::ADMIN, handleResetWifi));
+  g_srv.on("/api/net/retry", HTTP_POST, G(Lvl::ADMIN, handleNetRetry));
+  g_srv.on("/api/net/finish", HTTP_POST, G(Lvl::ADMIN, handleNetFinish));
+  g_srv.on("/api/reboot", HTTP_POST, G(Lvl::ADMIN, handleReboot));
+  g_srv.on("/api/ota/password", HTTP_POST, G(Lvl::ADMIN, handleOtaPassword));
+  g_srv.on("/api/events", HTTP_GET, G(Lvl::VIEW, handleEvents));
+  g_srv.on("/api/alarms", HTTP_GET, G(Lvl::VIEW, handleAlarms));
+  g_srv.on("/api/alarms/ack", HTTP_POST, G(Lvl::ADMIN, handleAlarmAck));
+  g_srv.on("/api/alarms/reset", HTTP_POST, G(Lvl::ADMIN, handleAlarmReset));
+  g_srv.on("/api/programs", HTTP_GET, G(Lvl::VIEW, handlePrograms));
+  g_srv.on("/api/programs", HTTP_POST, G(Lvl::ADMIN, handleProgramsPost));
+  g_srv.on("/api/trend", HTTP_GET, G(Lvl::VIEW, handleTrend));
+  g_srv.on("/api/session", HTTP_GET, handleSession);
+  g_srv.on("/api/login", HTTP_POST, handleLogin);
+  g_srv.on("/api/logout", HTTP_POST, handleLogout);
+  g_srv.on("/api/password", HTTP_POST, G(Lvl::ADMIN, handlePassword));
+  g_srv.on("/api/service/pin", HTTP_POST, G(Lvl::ADMIN, handleServicePin));
+  g_srv.on("/api/service/enter", HTTP_POST, G(Lvl::ADMIN, handleServiceEnter));
+  g_srv.on("/api/service/exit", HTTP_POST, G(Lvl::ADMIN, handleServiceExit));
+  g_srv.on("/api/service/test", HTTP_POST, G(Lvl::ADMIN, handleServiceTest));
+  g_srv.on("/api/service/reset-counters", HTTP_POST, G(Lvl::ADMIN, handleResetCounters));
+  g_srv.on("/api/ota/begin", HTTP_POST, G(Lvl::ADMIN, handleOtaBegin));
+  g_srv.on("/api/ota", HTTP_POST, otaDone, otaRaw);   // ham gövde parça parça flash'a (yetki RAW_START'ta)
+  g_srv.on("/api/factory-reset", HTTP_POST, G(Lvl::ADMIN, handleFactoryReset));
   g_srv.onNotFound(handleNotFound);
-  static const char* hdrs[] = {"X-SCADA"};
-  g_srv.collectHeaders(hdrs, 1);
+  static const char* hdrs[] = {"X-SCADA", "Cookie", "X-OTA-Password"};
+  g_srv.collectHeaders(hdrs, 3);
 }
 
 void start() { g_srv.begin(); }

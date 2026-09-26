@@ -100,7 +100,7 @@ Yazma istekleri `X-SCADA: 1` başlığı ister. Oturum/parola F4'te; o zamana ka
 
 ### 4.3 OTA
 
-ArduinoOTA yalnız bağlıyken ve OTA parolası tanımlıysa açılır (D-17). Parola konsoldan `otapass <parola>` (NVS'te yalnız MD5 özeti). Güvenli duruş: `ota` komutu çekirdeği `OTA_PREP`'e alır; ısıtma durup post-cool bitince `OTA` durumunda yükleme kabul edilir. Hazırlıksız başlayan yükleme iptal edilir ve hazırlık başlatılır. `platformio.ini` içinde espota parametreleri yorum satırı olarak durur.
+ArduinoOTA STA bağlıyken açılır. OTA parolası tanımlı değilse **parolasızdır**; bu durum web'de üst uyarı ve Erişim › OTA parolası panelinde uyarı olarak görünür (D-17, F2.5). Parola web'den (`POST /api/ota/password {password}`, `""` = kaldır) veya konsoldan `otapass <parola>|clear` ile tanımlanır; NVS'te yalnız MD5 özeti. Değişiklikte OTA sunucusu yeniden kurulur, yeniden başlatma gerekmez. Güvenli duruş: `ota` komutu çekirdeği `OTA_PREP`'e alır; ısıtma durup post-cool bitince `OTA` durumunda yükleme kabul edilir. Hazırlıksız başlayan yükleme iptal edilir ve hazırlık başlatılır. `platformio.ini` içinde espota parametreleri yorum satırı olarak durur.
 
 ## 5. Kalıcılık
 

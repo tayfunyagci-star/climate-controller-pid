@@ -4,7 +4,7 @@ Sütunlar: **Tür** (f=float, i=int, b=bool, e=enum, s=string, x=sır), **Kalıc
 
 ## 1. Kalıcılık ilkeleri
 
-- **DESIGN DECISION:** Konfigürasyon tek şemalı belge (`config.json`, `schema_version`, `config_rev`, CRC32) olarak primary/backup/temp üçlüsüyle nesil kontrollü atomik yazılır (baseline §4). Sayaçlar (`counters.bin`) ve olaylar ayrı dosyalardır; farklı yazım sıklıkları birbirini etkilemez.
+- **DESIGN DECISION:** Konfigürasyon tek şemalı belge (`schema_version`, `config_rev`, CRC32) olarak primary/backup/temp üçlüsüyle nesil kontrollü atomik yazılır (baseline §4). **Uygulama (F3):** LittleFS `/config.bin|.bak|.tmp`; çerçeve = magic + nesil (= `config_rev`) + uzunluk + CRC32; yük düz metin `anahtar=değer` satırları (JSON yerine: saf C++ ayrıştırıcı, native test). Eksik anahtar varsayılan (şema göçü), bilinmeyen anahtar yok sayılır, geçersiz değer belgeyi reddeder. Sayaçlar (`counters.bin`) ve olaylar ayrı dosyalardır; farklı yazım sıklıkları birbirini etkilemez.
 - Aday konfigürasyonun **tamamı** doğrulanmadan hiçbir alan RAM'e uygulanmaz; hata önceki çalışma ayarını korur.
 - Operasyonel değerler (`temperature_setpoint`, `operating_mode`, `profile`, `manual_heat_demand`) persist edilir ama yazım **ertelenir** (5 s deferred, azami 60 s flush) — slider benzeri hızlı değişimler flash'ı aşındırmaz.
 - Yarım/bozuk kayıt fabrika sıfırlaması tetiklemez: son doğrulanmış kopya → güvenli varsayılan + `CONFIGURATION_ERROR` + ısıtma kilidi.
@@ -161,7 +161,7 @@ Skill kataloğu (scada-ui-design §8.4 Ağ): `adN`→`device_display_name`, `mdn
 | `session_hours` / `remember_days` | i | 8 / 14 | |
 | `service_pin_hash` | x | tanımsız → servis modu kapalı | |
 | `local_lock_max_min` | i | 1440 | |
-| `ota_password_hash` | x | tanımsız → OTA kapalı | **DESIGN DECISION:** Bu cihazda parolasız OTA varsayılanı yok (rezistans yükü) |
+| `ota_password_hash` | x | tanımsız → OTA parolasız açık (uyarı) | Kullanıcı kararı 25.09.2026 (F2.5): parolasız OTA çalışır, parola Ayarlar › Erişim'den tanımlanır/kaldırılır; rezistans yükü için güvenli duruş her yüklemede zorunlu |
 
 ### 2.11 Diagnostics
 

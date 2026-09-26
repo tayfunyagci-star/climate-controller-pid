@@ -5,6 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
+#include <sys/stat.h>
 #include <atomic>
 #include <cstring>
 #include <ctime>
@@ -16,12 +17,21 @@ namespace storage {
 namespace {
 
 // ---------------------------------------------------------------- LittleFS sürücüsü
+// Arduino-ESP32 2.0.x'te LittleFS varlık denetimi open(p, "r") ile yapılır ve olmayan dosyada vfs_api.cpp:105
+// "does not exist, no permits for creation" hatası basar (GenStore'un .bin/.bak/.tmp yoklaması). stat() sessizdir.
+bool fexists(const char* p) {
+  char full[56];
+  snprintf(full, sizeof full, "/littlefs%s", p);
+  struct stat st;
+  return ::stat(full, &st) == 0;
+}
+
 class LfsBlob : public cc::BlobFs {
  public:
   bool read(const char* name, uint8_t* buf, size_t cap, size_t& len) override {
     char p[40];
     path(name, p);
-    if (!LittleFS.exists(p)) return false;
+    if (!fexists(p)) return false;
     File f = LittleFS.open(p, "r");
     if (!f) return false;
     const size_t sz = f.size();
@@ -42,14 +52,14 @@ class LfsBlob : public cc::BlobFs {
   bool remove(const char* name) override {
     char p[40];
     path(name, p);
-    return !LittleFS.exists(p) || LittleFS.remove(p);
+    return !fexists(p) || LittleFS.remove(p);
   }
   bool rename(const char* from, const char* to) override {
     char a[40], b[40];
     path(from, a);
     path(to, b);
-    if (!LittleFS.exists(a)) return false;
-    if (LittleFS.exists(b)) LittleFS.remove(b);
+    if (!fexists(a)) return false;
+    if (fexists(b)) LittleFS.remove(b);
     return LittleFS.rename(a, b);
   }
 

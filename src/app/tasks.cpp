@@ -194,9 +194,13 @@ void sensorTask(void*) {
 
 }  // namespace
 
-void tasksStart(cc::ClimateCore& core) {
+void coreAttach(cc::ClimateCore& core) {
   g_core = &core;
-  g_mtx = xSemaphoreCreateMutex();  // öncelik mirası
+  if (!g_mtx) g_mtx = xSemaphoreCreateMutex();  // öncelik mirası
+}
+
+void tasksStart(cc::ClimateCore& core) {
+  coreAttach(core);
   const uint32_t now = millis();
   for (auto& h : g_hb) h.store(now);
   for (auto& m : g_max_us) m.store(0);
@@ -211,7 +215,7 @@ void tasksStart(cc::ClimateCore& core) {
   xTaskCreatePinnedToCore(sensorTask, "sensor", 4096, nullptr, 6, &g_task[T_SEN], 1);
 }
 
-bool coreLock(uint32_t timeout_ms) { return xSemaphoreTake(g_mtx, pdMS_TO_TICKS(timeout_ms)) == pdTRUE; }
+bool coreLock(uint32_t timeout_ms) { return g_mtx && xSemaphoreTake(g_mtx, pdMS_TO_TICKS(timeout_ms)) == pdTRUE; }
 void coreUnlock() { xSemaphoreGive(g_mtx); }
 cc::ClimateCore& core() { return *g_core; }
 

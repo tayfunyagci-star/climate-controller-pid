@@ -19,6 +19,9 @@ struct TaskStats {
   uint32_t stack_free[4];      // bayt, en düşük
 };
 
+// Çekirdek + kilidi bağlar (idempotent). tasksStart'tan ÖNCE çekirdeğe erişen boot adımları (storage::afterCoreBegin)
+// için main'de g_core.begin() hemen ardından çağrılır; aksi halde xSemaphoreTake(NULL) → assert (queue.c:1545).
+void coreAttach(cc::ClimateCore& core);
 void tasksStart(cc::ClimateCore& core);
 bool coreLock(uint32_t timeout_ms);
 void coreUnlock();

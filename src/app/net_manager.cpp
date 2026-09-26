@@ -65,8 +65,10 @@ void onWifiEvent(arduino_event_id_t id, arduino_event_info_t info) {
 }
 
 struct Lock {
-  Lock() { xSemaphoreTake(g_mtx, portMAX_DELAY); }
-  ~Lock() { xSemaphoreGive(g_mtx); }
+  // Kontrol ve depo görevleri net::begin()'den önce başlar (clockValid vb. okur). Mutex yoksa NetTask da yoktur:
+  // varsayılan durum kilitsiz okunur (xSemaphoreTake(NULL) → assert queue.c:1545 olmaz).
+  Lock() { if (g_mtx) xSemaphoreTake(g_mtx, portMAX_DELAY); }
+  ~Lock() { if (g_mtx) xSemaphoreGive(g_mtx); }
 };
 
 void note(cc::Severity s, cc::EvCode c, cc::CmdSource actor = cc::CmdSource::SYSTEM, float v = cc::kNaN) {

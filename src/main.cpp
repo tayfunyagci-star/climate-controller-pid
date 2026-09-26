@@ -44,6 +44,7 @@ void setup() {
   Serial.printf("[STOR] fs=%s%s config=%s rev=%u\n", st.fs_ok ? "OK" : "YOK", st.formatted_now ? " (yeni bicimlendirildi)" : "",
                 st.config_loaded ? "yuklendi" : (st.config_corrupt ? "BOZUK" : "varsayilan"), (unsigned)st.config_rev);
   g_core.begin(cfg, boot);            // doğrulanmamış config reddedilir → güvenli varsayılan + CONFIG_ERROR
+  app::coreAttach(g_core);            // çekirdek kilidi: afterCoreBegin görevlerden önce çekirdeğe yazar
   storage::afterCoreBegin(boot.fault_reset);   // sayaçlar, olay sırası, programlar
   app::tasksStart(g_core);            // kontrol ağdan bağımsız başlar
   storage::begin();                   // flash'ın tek sahibi

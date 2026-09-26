@@ -453,3 +453,12 @@ Kapsam: [WEB_SCADA_UI §13](WEB_SCADA_UI.md), [SECURITY §2](SECURITY.md).
 - Canlı şerit: 4 sütunlu kutular (renk noktası + “LED n · Ad” + durum); mobilde 2 sütun. Not: görünüm cihazın bildirdiği durum + kayıtlı renktir, WS2812B geri bildirimi yoktur.
 - Renkler: sabit sıra açıklaması; grup kartında her durum bir sütun (durum adı, renk noktası, renk adı); palet sütunun altında açılır (kenar sütunlarda ekrana hizalı). Grup ipuçları kart `title`'ına taşındı.
 - Yalnız UI (`60_settings.js`, `app.css`); API ve firmware değişmedi. Doğrulama: Playwright + sahte cihaz, 1280 px açık / 390 px koyu, palet açık; JS hatası yok. Kartta görsel kontrol yapılmadı.
+
+## F4.2 — Açılış çökmesi ve LittleFS günlük gürültüsü düzeltildi (27.09.2026)
+
+Belirti (seri port, her açılışta): `assert failed: xQueueSemaphoreTake queue.c:1545 (( pxQueue ))` → yeniden başlama döngüsü; öncesinde `/littlefs/*.bin|.bak|.tmp does not exist, no permits for creation`.
+
+- **Kök neden (assert):** `storage::afterCoreBegin()` sayaç/olay/program geri yüklemesi için `app::coreLock()` çağırıyordu; çekirdek kilidi ise ancak `app::tasksStart()` içinde oluşturuluyordu → `xSemaphoreTake(NULL)`. Düzeltme: `app::coreAttach()` (çekirdek + kilit, idempotent) `g_core.begin()` hemen ardından çağrılır; `coreLock()` kilit yoksa `false` döner.
+- **Aynı sınıftan ikinci risk:** kontrol görevi `net::begin()`'den önce başlar ve `net::clockValid()` okur; `net_manager` kilidi null denetimi yapmıyordu. Diğer modüllerdeki gibi null güvenli yapıldı (mutex yokken NetTask da yoktur).
+- **Günlük gürültüsü:** Arduino-ESP32 2.0.x `LittleFS.exists()` `open(p,"r")` ile çalışır ve yok olan dosyada `[E] vfs_api.cpp:105` basar (GenStore ilk açılışta .bin/.bak/.tmp yoklar). `stat()` tabanlı `fexists()` ile değiştirildi. Bu satırlar hata değildi; ilk açılışta dosyaların henüz olmamasıdır.
+- Doğrulama: ESP32 derleme (arduino-cli, Arduino-ESP32 2.0.17, `-Wall -Wextra`) uyarısız. `pio run` ve kartta açılış **yapılmadı**.

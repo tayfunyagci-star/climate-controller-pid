@@ -1,6 +1,6 @@
-// MQTT ayarları (Ayarlar › MQTT bölümü) — NVS "mqtt" alanında kalıcı. MQTT istemcisi F5'tedir: bu modül
-// yalnız ayarları saklar ve boot'ta çekirdek alanlarını (yayın aralıkları, keşif, uzak yetkiler) konfigürasyona
-// uygular. Parola yalnız yazılır; GET'e çıkmaz (passSet). Web ve konsol aynı apply() yolunu kullanır.
+// MQTT ayarları (Ayarlar › MQTT bölümü) — broker/kimlik/kök topic NVS "mqtt" alanında. Çekirdek alanları
+// (yayın aralıkları, keşif, uzak yetkiler) F3'ten beri konfigürasyon belgesiyle kalıcıdır; buradaki kopyası
+// yalnız config belgesi olmayan cihazda tek seferlik göç için okunur. Parola yalnız yazılır; GET'e çıkmaz (passSet). Web ve konsol aynı apply() yolunu kullanır.
 #pragma once
 #include <cstdint>
 #include "core_api.h"

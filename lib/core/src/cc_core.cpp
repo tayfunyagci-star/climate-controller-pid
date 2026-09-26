@@ -699,6 +699,15 @@ CmdReply ClimateCore::setPrograms(const Program* list, uint8_t n, CmdSource src)
   return cmdLog(reply(CmdResult::ACCEPTED), src, (float)n);
 }
 
+bool ClimateCore::restorePrograms(const Program* list, uint8_t n, bool enabled) {
+  if (n > kMaxPrograms || !validatePrograms(list, n, cfg_.cabin_overtemp_limit).ok()) return false;
+  for (uint8_t i = 0; i < n; ++i) progs_[i] = list[i];
+  nprog_ = n;
+  progs_enabled_ = enabled;
+  hold_ = Hold();
+  return true;
+}
+
 CmdReply ClimateCore::setProgramsEnabled(bool on, CmdSource src) {
   if (mqttLocked(src)) return cmdLog(reply(CmdResult::REJECTED_POLICY, Reason::LOCAL_LOCK), src, on);
   progs_enabled_ = on;

@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstring>
 #include "core_api.h"
+#include "storage.h"
 #include "cc_netfsm.h"
 #include "tasks.h"
 #include "web.h"
@@ -151,6 +152,7 @@ void startOta(const char* host, const char* hash) {
       Update.abort();
       return;
     }
+    storage::flushNow(1500);                    // sayaçlar/olaylar imaj yazımından önce
     note(cc::Severity::WARNING, cc::EvCode::OTA_START, cc::CmdSource::LOCAL_SERVICE);
   });
   o.onError([](ota_error_t e) {
@@ -325,7 +327,7 @@ void netTask(void*) {
     uint32_t at;
     { Lock l; reboot = g_reboot; at = g_reboot_at; }
     if (reboot && (int32_t)(millis() - at) >= 0) {
-      Serial.println("[NET] Yeniden baslatiliyor");
+      Serial.println(storage::flushNow(2000) ? "[NET] Kayitlar yazildi; yeniden baslatiliyor" : "[NET] Kayit dogrulanamadi; yeniden baslatiliyor");
       Serial.flush();
       ESP.restart();
     }

@@ -1,6 +1,6 @@
 # ADR-007 — Kalıcılık ayrımı ve flash aşınması
 
-Durum: DESIGN DECISION / önerilen · 24.09.2026
+Durum: DESIGN DECISION · uygulandı F3 (26.09.2026) — `lib/core/cc_store`, `src/app/storage`
 
 ## Karar
 - Konfigürasyon: tek şemalı belge, primary/backup/temp, nesil kontrollü atomik yazım; operasyonel değerler 5 s ertelenmiş, azami 60 s flush.

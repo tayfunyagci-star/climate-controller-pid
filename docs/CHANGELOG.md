@@ -382,3 +382,37 @@ Kullanıcı isteği: MQTT katmanını ekle, eksik fazlara başla. Kapsam: [MQTT_
 | UI (Playwright + sahte cihaz) | MQTT durum paneli; önceki akışlar geçti |
 | Gerçek broker + Studio headless ölçümü, `broker_teshis.py` | **Yapılmadı** — sandbox'ta broker/Studio yok; faz çıkış kriteri kartta ölçülmeli |
 
+## F3 — Kalıcı depo (26.09.2026)
+
+Kapsam: [ADR-007](ADR/ADR-007-persistence-flash-wear.md), [CONFIGURATION_MODEL §1](CONFIGURATION_MODEL.md), scada-cihaz-standardi cihaz-temeli §4.
+
+### Eklenenler
+
+- `lib/core/cc_store` (saf, native test): `GenStore` — nesil numaralı CRC32 çerçeve; yazım `tmp` → geri okuma doğrulaması → `bin`→`bak`, `tmp`→`bin`; yükleme üç kopyadan geçerli en yüksek nesil. Konfigürasyon belgesi (metin, şema göçü), günlük ısıtma geçmişi (7 gün, takvim gün serisi, geri saatte kaydırma yok), kalıcı olay halkası (64, epoch damgalı). `test_store` (6 test): her dosya adımında güç kesintisi (yarım yazım dahil) → eski ya da yeni kayıt, asla boş/bozuk; bit hatasında yedeğe düşme; bozuk tek kopyada `CORRUPT`.
+- `src/app/storage` — StorageTask (flash'ın tek sahibi, çekirdek 0, düşük öncelik), LittleFS `littlefs` bölümü:
+  - config: değişimden 5 s sonra, sürekli değişimde en geç 60 s'de; `config_rev` = nesil.
+  - alarms: kilitli alarmlar + onay durumu (`AlarmPersist`) geçişte; boot'ta `BootInfo.restore_alarms`.
+  - counters: çalışma saati, anahtarlama, boot sayısı, hatalı boot toplamı, bugünkü ısıtma süresi + 7 günlük geçmiş; 15 dk'da bir, gün devrinde hemen.
+  - events: WARNING+ son 64 olay, en çok 60 s'de bir; olay `seq`'i açılışlar arasında tekdüze artar; `/api/events` önceki açılışların olaylarını `prev_boot` ile döndürür.
+  - programs: yerel programlar + etkinlik, değişimde; boot'ta doğrulanarak geri yüklenir.
+  - Yeniden başlatma (web, konsol) ve OTA öncesi `flushNow` (bekleyen her şey yazılır).
+  - Açılamayan dosya sistemi biçimlendirilmez; yalnız hiç biçimlendirilmemiş yeni cihaz (NVS `stor/fsinit` yok) biçimlendirilir. Bozuk/doğrulanmayan konfigürasyon → güvenli varsayılan + `CONFIGURATION_ERROR` (fabrika sıfırlaması yok).
+- Ayarlar: **Sensörler, Kontrol ve Güvenlik sekmeleri artık kaydedilir** — alanlar `setField` ile adaya işlenir, `applyConfig` bütün adayı (V1–V17 + programlar) doğrular, StorageTask kalıcı yazar. Yeniden başlatma gerektiren alanda (sürücü seçimi) yanıt bunu söyler. Yalnız erişim alanları (F4) reddedilir.
+- MQTT: `B/history/heat_minutes_daily` (retained; bağlantı, gün devri, saatlik), keşfi `history_discovery_enabled` ile. `B/diag/state` ve `/api/data`: `boot_count`, `config_rev`, depo sayaçları; `B/config/reported`: `config_rev`.
+- Konsol `status`: depo satırı.
+
+### Sınırlar
+
+- Güç kesintisinde en çok: sayaçlarda 15 dk, olaylarda 60 s, konfigürasyonda 60 s (sürekli değişimde) kayıp.
+- `heater_was_on` (boot post-cool bayrağı) kalıcı değil, RTC'de kalır: her rezistans anahtarlamasında flash yazımı aşınma yaratır; güç kesintisinde fan da durduğundan boot post-cool bilgisi yoktur (SELF_TEST sonrası prestart kuralı geçerli).
+- Konfigürasyon yedeği indir/geri yükle, sayaç sıfırlama ve fabrika ayarı (dosyaların silinmesi) F4 uçlarıyla gelir.
+
+### Doğrulama
+
+| Kontrol | Sonuç |
+|---|---|
+| Native (g++ 13 + Unity, `-Werror`) | 20 paket geçti (`test_store` yeni) |
+| Tam ESP32 imajı (xtensa gcc 8.4, Arduino-ESP32 2.0.17 + LittleFS, elle bağlama) | ELF bağlandı, uygulama kodunda uyarı yok; flash ≈ 1.24 MB / 1.83 MB, statik RAM ≈ 96 KB |
+| UI regresyon (Playwright + sahte cihaz) | Geçti |
+| Kartta güç kesintisi / yazım ortası testi (faz çıkış kriteri) | **Yapılmadı** — kartta: ayar kaydet → 3 s içinde güç kes → açılışta `status` depo satırı ve ayar değeri |
+

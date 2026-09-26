@@ -14,6 +14,7 @@
 #include "version.h"
 #include "net_manager.h"
 #include "status_led.h"
+#include "storage.h"
 #include "tasks.h"
 #include "ui_generated.h"
 
@@ -167,6 +168,15 @@ void handleData() {
   d["static_ip"] = nc.st;
   fnum(d, "sensor_error_rate_10m", f.err_rate, 0);
   d["sensor_model"] = "DHT22";
+  {
+    const storage::Status st = storage::status();
+    d["config_rev"] = st.config_rev;
+    d["boot_count"] = st.boots;
+    d["storage_ok"] = st.fs_ok && !st.config_corrupt;
+    d["storage_saves"] = st.saves;
+    d["storage_errors"] = st.errors;
+    d["storage_note"] = st.last_error;
+  }
   replyJson(200, doc);
 }
 
@@ -359,7 +369,8 @@ void settingsPost() {
   if (!body(b)) return;
   static const char* const netKeys[] = {"adN", "mdns", "staticEnabled", "staticIP", "gateway", "subnet", "dns1",
                                         "dns2", "ntp_server", "ssid", "pass", "clearWifiPassword"};
-  bool anyNet = false, anyLed = false, anyMqtt = false;
+  bool anyNet = false, anyLed = false, anyMqtt = false, anyCore = false, needReboot = false;
+  cc::Config coreCur, coreCand;
   cc::LedConfig lc = leds::config();
   for (JsonPair kv : b.as<JsonObject>()) {
     bool known = false;
@@ -383,7 +394,7 @@ void settingsPost() {
     }
     const cc::FieldInfo* f = cc::findField(kv.key().c_str());
     if (!f) {
-      // Bu yazılımda henüz karşılığı olmayan UI alanları (MQTT F5, erişim F4 …): GET bunları göndermez,
+      // Bu yazılımda henüz karşılığı olmayan UI alanları (erişim F4 …): GET bunları göndermez,
       // form boş/varsayılan gönderir. Dolu gelen değer sessizce yok sayılmaz, reddedilir.
       const JsonVariantConst v = kv.value();
       const bool empty = v.isNull() || (v.is<const char*>() && !*v.as<const char*>()) || (v.is<bool>() && !v.as<bool>()) ||
@@ -392,17 +403,43 @@ void settingsPost() {
       replyMsg(409, "Bu ayar sonraki fazda (erişim F4) etkinleşecek; şimdilik kaydedilemez.", kv.key().c_str());
       return;
     }
-    // Değişmeyen değerler (form tüm alanları gönderir) kabul; değişen değer F3'e kadar kaydedilemez
-    cc::Config c;
-    if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul."); return; }
-    c = app::core().config();
+    // Çekirdek konfigürasyon alanı (Sensörler/Kontrol/Güvenlik): adaya işlenir; tamamı doğrulanınca uygulanır
+    if (!anyCore) {
+      if (!app::coreLock(100)) { replyMsg(503, "Çekirdek meşgul."); return; }
+      coreCur = app::core().config();
+      app::coreUnlock();
+      coreCand = coreCur;
+      anyCore = true;
+    }
+    char payload[32];
+    const JsonVariantConst v = kv.value();
+    if (v.is<bool>()) strcpy(payload, v.as<bool>() ? "ON" : "OFF");
+    else if (v.is<float>()) snprintf(payload, sizeof payload, "%.6g", v.as<float>());
+    else if (v.is<const char*>()) snprintf(payload, sizeof payload, "%s", v.as<const char*>());
+    else { replyMsg(400, "Geçersiz değer.", kv.key().c_str()); return; }
+    const cc::SetResult r = cc::setField(coreCand, kv.key().c_str(), payload, cc::CmdSource::LOCAL_WEB, coreCand);
+    if (r.result != cc::CmdResult::ACCEPTED) {
+      char msg[120];
+      if (r.result == cc::CmdResult::REJECTED_RELATION)
+        snprintf(msg, sizeof msg, "Alanlar arası kural ihlali (V%u, %s). İlişkili alanları birlikte düzeltin.", (unsigned)r.rule, cc::name(r.code));
+      else snprintf(msg, sizeof msg, "Değer kabul edilmedi (%s).", cc::name(r.code));
+      replyMsg(400, msg, kv.key().c_str());
+      return;
+    }
+    if (f->flags & cc::CF_REBOOT && cc::fieldValue(coreCand, *f) != cc::fieldValue(coreCur, *f)) needReboot = true;
+  }
+  if (anyCore) {
+    // Adayın tamamı (V1–V17 + programlar) çekirdekte doğrulanır; hata = hiçbir alan uygulanmaz
+    cc::CmdReply r;
+    if (!app::coreLock(200)) { replyMsg(503, "Çekirdek meşgul."); return; }
+    r = app::core().applyConfig(coreCand, cc::CmdSource::LOCAL_WEB);
     app::coreUnlock();
-    const float cur = cc::fieldValue(c, *f);
-    bool same = false;
-    if (f->kind == cc::FieldKind::ENUM) same = kv.value().is<const char*>() && (uint8_t)cur < f->enumCount && !strcmp(kv.value().as<const char*>(), f->enumNames[(uint8_t)cur]);
-    else if (f->kind == cc::FieldKind::BOOL) same = kv.value().as<bool>() == (cur != 0);
-    else same = fabsf(kv.value().as<float>() - cur) < 1e-4f;
-    if (!same) { replyMsg(409, "Bu ayar kalıcı ayar deposu (F3) eklenince kaydedilebilecek. Şimdilik Ağ, MQTT, LED ve Wi-Fi ayarları kaydedilir.", kv.key().c_str()); return; }
+    if (r.result != cc::CmdResult::ACCEPTED) {
+      char msg[120];
+      snprintf(msg, sizeof msg, "Kaydedilmedi: %s (%s).", cc::name(r.result), cc::name(r.code));
+      replyMsg(409, msg);
+      return;
+    }
   }
   if (anyMqtt && !mqttSection(b)) return;
   const net::Status ns = net::status();   // net_try tabanı: UI bu değerden büyük denemenin sonucunu bekler
@@ -410,7 +447,8 @@ void settingsPost() {
     const char* err = nullptr;
     if (anyLed && !leds::apply(lc, &err)) { replyMsg(507, err); return; }
     JsonDocument d;
-    d["message"] = anyLed ? "LED ayarları kaydedildi"
+    d["message"] = anyCore ? (needReboot ? "Kaydedildi. Bu değişiklik yeniden başlatmadan sonra geçerli olur." : "Kaydedildi")
+                   : anyLed ? "LED ayarları kaydedildi"
                    : anyMqtt ? "MQTT ayarları kaydedildi. Bağlantı yeni ayarlarla yeniden kuruluyor; sonuç MQTT durumunda görünür."
                              : "Kaydedildi";
     d["reconnect"] = false;
@@ -525,6 +563,24 @@ void handleEvents() {
   JsonDocument doc;
   JsonArray a = doc["events"].to<JsonArray>();
   char msg[64];
+  // Önceki açılışlardan kalıcı WARNING+ olaylar (F3): epoch kayıt anında damgalandı
+  static cc::Event pe[cc::kPersistEvents];
+  static int64_t pts[cc::kPersistEvents];
+  const uint8_t np = storage::persistedEvents(pe, pts, cc::kPersistEvents);
+  for (uint8_t i = 0; i < np; ++i) {
+    const cc::Event& e = pe[i];
+    JsonObject o = a.add<JsonObject>();
+    o["seq"] = e.seq;
+    o["up"] = e.up_s;
+    if (pts[i]) o["ts"] = pts[i]; else o["ts"] = nullptr;
+    o["sev"] = cc::name(e.sev);
+    o["src"] = cc::name(e.src);
+    if (std::isnan(e.val)) snprintf(msg, sizeof msg, "%s", cc::name(e.code));
+    else snprintf(msg, sizeof msg, "%s %.2f", cc::name(e.code), e.val);
+    o["msg"] = msg;
+    if (e.actor != cc::CmdSource::SYSTEM) o["actor"] = cc::name(e.actor);
+    o["prev_boot"] = true;
+  }
   for (uint16_t i = 0; i < n; ++i) {
     const cc::Event& e = g_ev[i];
     JsonObject o = a.add<JsonObject>();

@@ -14,6 +14,7 @@
 #include "mqtt_cfg.h"
 #include "net_manager.h"
 #include "state_json.h"
+#include "storage.h"
 #include "tasks.h"
 #include "version.h"
 
@@ -90,6 +91,9 @@ uint32_t g_last_disc_ms = 0, g_disc_tick_ms = 0;
 uint32_t g_state_hash = 0, g_state_ms = 0, g_cfg_hash = 0, g_alarm_hash = 0, g_diag_ms = 0, g_avail_ms = 0;
 bool g_force_state = false;
 uint32_t g_ev_seq = 0;
+int32_t g_hist_end_pub = -2;
+uint32_t g_hist_ms = 0;
+bool g_hist_disc = false;
 bool g_disc_enabled_seen = true;
 
 void topic(char* out, size_t cap, const char* suffix) { snprintf(out, cap, "%s/%s", g_base, suffix); }
@@ -221,6 +225,7 @@ void onDisconnected(uint32_t now, bool auth) {
 }
 
 // ---------------------------------------------------------------- yayınlar
+void publishHistoryDiscovery(bool enabled);
 void publishDiscoveryStep(uint32_t now) {
   if (g_disc_i < 0 || now - g_disc_tick_ms < 20) return;
   g_disc_tick_ms = now;
@@ -234,7 +239,62 @@ void publishDiscoveryStep(uint32_t now) {
     const size_t n = cc::mqDiscoveryPayload(idn, e, buf, sizeof buf);
     if (n) pub(t, buf, n, 1, true);
   }
-  if (g_disc_i >= (int)cc::mqEntityCount()) g_disc_i = -1;
+  if (g_disc_i >= (int)cc::mqEntityCount()) {
+    g_disc_i = -1;
+    app::Frame f;
+    const bool hd = app::capture(f, 50) && f.c.history_discovery_enabled;
+    g_hist_disc = hd;
+    publishHistoryDiscovery(hd);
+  }
+}
+
+// Günlük ısıtma geçmişi (mqtt-studio-dugum §9, MQTT_INTEGRATION §4.6): son 7 kapanmış gün, retained.
+// Tetik: bağlantı, gün devri, saatte bir. Saat geçersizse ya da kapanmış gün yoksa yayın yok.
+void publishHistory(uint32_t now, bool force) {
+  const cc::CounterRec c = storage::counters();
+  if (!net::clockValid() || c.hist_end < 0) return;
+  if (!force && c.hist_end == g_hist_end_pub && now - g_hist_ms < 3600000u) return;
+  JsonDocument d;
+  d["v"] = 1;
+  d["unit"] = "min";
+  char day[11];
+  cc::formatDate(c.hist_end, day);
+  d["end"] = day;
+  JsonArray a = d["days"].to<JsonArray>();
+  uint32_t sum = 0;
+  for (uint8_t i = 0; i < cc::kHistDays; ++i) { a.add(c.hist_min[i]); sum += c.hist_min[i]; }
+  d["sum"] = sum;
+  if (c.since_day >= 0) { cc::formatDate(c.since_day, day); d["since"] = day; }
+  d["ts"] = (int64_t)time(nullptr);
+  if (pubJson("history/heat_minutes_daily", d, 1, true)) { g_hist_end_pub = c.hist_end; g_hist_ms = now; }
+}
+
+// Geçmiş keşfi history_discovery_enabled'a bağlı (Suite TÜKETİM "min" birimini henüz kabul etmiyor, OI-M3)
+void publishHistoryDiscovery(bool enabled) {
+  char t[160];
+  snprintf(t, sizeof t, "homeassistant/sensor/%s_heat_minutes_history/config", g_slug);
+  if (!enabled || g_disc_clear) { pub(t, "", 0, 1, true); return; }
+  JsonDocument d;
+  d["~"] = g_base;
+  d["name"] = "Son 7 gün ısıtma";
+  char u[64];
+  snprintf(u, sizeof u, "%s_heat_minutes_history", g_slug);
+  d["uniq_id"] = u;
+  d["stat_t"] = "~/history/heat_minutes_daily";
+  d["json_attr_t"] = "~/history/heat_minutes_daily";
+  d["val_tpl"] = "{{ value_json.sum }}";
+  d["avty_t"] = "~/avail";
+  d["unit_of_meas"] = "min";
+  d["ic"] = "mdi:chart-bar";
+  JsonObject dev = d["dev"].to<JsonObject>();
+  dev["ids"].to<JsonArray>().add(g_slug);
+  dev["name"] = g_dev;
+  JsonObject o = d["o"].to<JsonObject>();
+  o["name"] = "esp-climate-node";
+  o["sw"] = app::kFwVersion;
+  static char buf[cc::kMqBuffer];
+  const size_t n = serializeJson(d, buf, sizeof buf);
+  pub(t, buf, n, 1, true);
 }
 
 void publishAlarms() {
@@ -296,6 +356,7 @@ void publishState(uint32_t now, bool force) {
   app::writeConfigReported(c.to<JsonObject>(), f.c);
   const uint32_t ch = fnv(c["config_hash"] | "", 8);
   if (ch != g_cfg_hash && pubJson("config/reported", c, 1, true)) g_cfg_hash = ch;
+  if (f.c.history_discovery_enabled != g_hist_disc && g_disc_i < 0) { g_hist_disc = f.c.history_discovery_enabled; publishHistoryDiscovery(g_hist_disc); }
   // Keşif aç/kapa değişimi: yeniden yayın veya temizlik
   if (f.c.discovery_enabled != g_disc_enabled_seen && g_disc_i < 0) {
     g_disc_enabled_seen = f.c.discovery_enabled;
@@ -433,6 +494,7 @@ void task(void*) {
       JsonDocument g;
       app::Frame f;
       if (app::capture(f, 50)) { app::writeDiag(g.to<JsonObject>(), f); pubJson("diag/state", g, 0, true); g_diag_ms = now; }
+      publishHistory(now, true);
       if (pubStr("avail", "online", 1, true)) { g_online_pending = false; g_avail_ms = now; }   // önce keşif, sonra online
       continue;
     }
@@ -441,6 +503,7 @@ void task(void*) {
       publishState(now, g_force_state);
       publishAlarms();
       publishEvents();
+      publishHistory(now, false);
     }
     if (now - g_avail_ms >= 30000 && pubStr("avail", "online", 1, true)) g_avail_ms = now;   // 30 s tazeleme
   }

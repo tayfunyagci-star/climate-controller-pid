@@ -8,6 +8,7 @@
 #include "app/mqtt_cfg.h"
 #include "app/mqtt_client.h"
 #include "app/net_manager.h"
+#include "app/storage.h"
 #include "app/tasks.h"
 #include "app/core_api.h"
 
@@ -31,14 +32,20 @@ void setup() {
   hal::outputsEarlyInit();            // ilk iş: R pasif (LOW), fan röleleri pasif (HIGH)
   Serial.begin(115200);
   app::BootState bs;
-  const cc::BootInfo boot = app::readBoot(bs);
-  Serial.printf("\nKulube Iklim Kontrolcusu F2 | reset=%s hatali_boot=%u heater_was_on=%d\n", bs.reset_reason,
+  cc::BootInfo boot = app::readBoot(bs);
+  Serial.printf("\nKulube Iklim Kontrolcusu | reset=%s hatali_boot=%u heater_was_on=%d\n", bs.reset_reason,
                 (unsigned)boot.fault_boots_in_window, (int)boot.heater_was_on);
-  cc::Config cfg = f2Config();
-  mqttcfg::load();                    // MQTT bölümü (NVS "mqtt"): yayın aralıkları, keşif, uzak yetkiler
-  mqttcfg::overlay(cfg);
+  cc::Config cfg = f2Config();        // donanım tabanı; kayıtlı konfigürasyon üzerine yazar
+  storage::bootLoad(cfg, boot);       // F3: config (nesil seçimi) + kilitli alarmlar; bozuksa CONFIG_ERROR
+  mqttcfg::load();
+  if (!storage::configLoaded()) mqttcfg::overlay(cfg);   // tek seferlik göç: F2.6'da NVS'e yazılmış MQTT alanları
+  const storage::Status st = storage::status();
+  Serial.printf("[STOR] fs=%s%s config=%s rev=%u\n", st.fs_ok ? "OK" : "YOK", st.formatted_now ? " (yeni bicimlendirildi)" : "",
+                st.config_loaded ? "yuklendi" : (st.config_corrupt ? "BOZUK" : "varsayilan"), (unsigned)st.config_rev);
   g_core.begin(cfg, boot);            // doğrulanmamış config reddedilir → güvenli varsayılan + CONFIG_ERROR
+  storage::afterCoreBegin(boot.fault_reset);   // sayaçlar, olay sırası, programlar
   app::tasksStart(g_core);            // kontrol ağdan bağımsız başlar
+  storage::begin();                   // flash'ın tek sahibi
   net::begin();                       // Wi-Fi + SNTP paralel (kontrol beklemez)
   mq::begin();                        // MQTT (F5): kendi görevi; broker yoksa DISABLED
   app::consoleBegin(bs);

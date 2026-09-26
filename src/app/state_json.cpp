@@ -6,6 +6,7 @@
 #include "boot_state.h"
 #include "mqtt_client.h"
 #include "net_manager.h"
+#include "storage.h"
 #include "tasks.h"
 #include "web.h"
 #include "version.h"
@@ -173,6 +174,7 @@ void writeConfigReported(JsonObject d, const cc::Config& c) {
   char hx[9];
   snprintf(hx, sizeof hx, "%08x", (unsigned)h);
   d["config_hash"] = hx;
+  d["config_rev"] = storage::status().config_rev;
 }
 
 void writeDiag(JsonObject d, const Frame& f) {
@@ -183,6 +185,12 @@ void writeDiag(JsonObject d, const Frame& f) {
   d["uptime"] = f.s.uptime_s;
   d["reset_reason"] = resetReasonName();
   d["fault_boot_count"] = rtcFaultBoots();
+  {
+    const storage::Status st = storage::status();
+    d["boot_count"] = st.boots;
+    d["config_rev"] = st.config_rev;
+    d["storage_errors"] = st.errors;
+  }
   d["free_heap"] = ESP.getFreeHeap();
   d["min_heap"] = ESP.getMinFreeHeap();
   if (ns.sta_ok) d["wifi_rssi"] = ns.rssi; else d["wifi_rssi"] = nullptr;

@@ -8,6 +8,7 @@
 #include "pins.h"
 #include "net_manager.h"
 #include "status_led.h"
+#include "storage.h"
 #include "tasks.h"
 
 namespace app {
@@ -81,6 +82,12 @@ void printStatus() {
                 ns.ap_mode ? ns.ap_name : "kapali", ns.ap_mode ? " (192.168.4.1, sifre etikette)" : "",
                 net::settings().mdns, ns.ota_ready ? (net::otaPasswordSet() ? "hazir" : "hazir (PAROLASIZ)") : "baglanti bekliyor",
                 ns.note);
+  {
+    const storage::Status st = storage::status();
+    Serial.printf("depo: fs=%s config=%s rev=%u boot=%u kayit=%u hata=%u %s\n", st.fs_ok ? "OK" : "YOK",
+                  st.config_loaded ? "kayitli" : (st.config_corrupt ? "BOZUK" : "varsayilan"), (unsigned)st.config_rev,
+                  (unsigned)st.boots, (unsigned)st.saves, (unsigned)st.errors, st.last_error);
+  }
   Serial.printf("gorev yas(ms) saf=%lu out=%lu ctl=%lu sen=%lu | azami(us) %lu/%lu/%lu/%lu | kilit zaman asimi=%lu\n",
                 (unsigned long)ts.age_ms[0], (unsigned long)ts.age_ms[1], (unsigned long)ts.age_ms[2], (unsigned long)ts.age_ms[3],
                 (unsigned long)ts.max_us[0], (unsigned long)ts.max_us[1], (unsigned long)ts.max_us[2], (unsigned long)ts.max_us[3],
@@ -179,7 +186,7 @@ void execute(char* line) {
     bool heating = false;
     locked([&] { heating = core().outputs()[cc::R1] || core().outputs()[cc::R2] || core().snapshot().post_cool_remaining_s > 0; });
     if (heating) { Serial.println("isitma/post-cool suruyor: once 'set operating_mode OFF' ve post-cool bitsin"); return; }
-    Serial.println("yeniden baslatiliyor");
+    Serial.println(storage::flushNow(2000) ? "kayitlar yazildi; yeniden baslatiliyor" : "kayit dogrulanamadi; yeniden baslatiliyor");
     Serial.flush();
     ESP.restart();
   }

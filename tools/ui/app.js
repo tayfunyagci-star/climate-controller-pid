@@ -2213,6 +2213,7 @@ const LED_GROUPS = [
 const PALETTE = [['#000000', 'Siyah (sönük)'], ['#ffffff', 'Beyaz'], ['#ff0000', 'Kırmızı'], ['#00ff00', 'Yeşil'], ['#0000ff', 'Mavi'],
   ['#ffff00', 'Sarı'], ['#00ffff', 'Turkuaz'], ['#800080', 'Mor'], ['#ff8000', 'Turuncu'], ['#ff69b4', 'Pembe'], ['#bfff00', 'Lime'],
   ['#008080', 'Teal'], ['#000080', 'Lacivert'], ['#ff00ff', 'Eflatun'], ['#808080', 'Gri'], ['#800000', 'Bordo']];
+const LED_NOTE = 'Şerit, cihazın bildirdiği durumlarla ve kayıtlı renklerle çizilir. WS2812B geri bildirim vermez; görünüm fiziksel şeridin çalıştığını kanıtlamaz.';
 const colorName = v => { const p = PALETTE.find(c => c[0] === String(v).toLowerCase()); return p ? p[1] : String(v).toLowerCase(); };
 
 builders.settings = sec => {
@@ -2274,9 +2275,9 @@ builders.settings = sec => {
   // ---- LED renk alanı: gizli değer + <details> palet (bir anda tek palet; seçimde, Escape'te ve dışarı dokunuşta kapanır)
   function colorField(name, group, state, secId) {
     const input = h('input', {type: 'hidden', id: 'f-' + name, name, form: 'sf-' + secId});
-    const dot = h('span', {class: 'dot', 'aria-hidden': 'true'});
+    const dot = h('span', {class: 'dot big', 'aria-hidden': 'true'});
     const cname = h('span', {class: 'swatch-name'});
-    const summary = h('summary', null, h('span', {class: 'led-state', text: state}), h('span', {class: 'swatch-cur'}, dot, cname));
+    const summary = h('summary', null, h('span', {class: 'led-state', text: state}), dot, cname);
     const pal = h('div', {class: 'palette', role: 'radiogroup', 'aria-label': group + ' · ' + state + ' rengi'});
     const wrap = h('details', {class: 'led-row', 'data-name': name}, summary, pal, input);
     const paint = () => {
@@ -2331,15 +2332,19 @@ builders.settings = sec => {
   });
   document.addEventListener('click', e => { $$('details.led-row[open]', sec).forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
 
+  // Aile düzeni: canlı şerit (4 sütun) → parlaklık → renk grupları (grup başına 3 durum sütunu)
   function renderLed(p) {
     const strip = h('div', {class: 'led-strip', id: 'led-live', role: 'list', 'aria-label': 'Şeritteki LED’lerin şu anki durumu'},
       ...LED_GROUPS.map(([k, title], i) => h('div', {class: 'led-live', role: 'listitem', 'data-i': String(i)},
-        h('span', {class: 'dot big', 'aria-hidden': 'true'}), h('b', {text: title.replace(' · ', ' ')}), h('span', {class: 'dim led-live-st', text: '—'}))));
-    p.prepend(h('section', {class: 'panel'}, h('h3', {text: 'LED durumu (canlı)'}), strip,
-      h('p', {class: 'field-hint', id: 'led-live-note', text: 'WS2812B şerit, GPIO27. İlk dört LED bütün SCADA cihazlarında aynıdır; sonrakiler cihaza özgüdür. Renkler kayıtlı ayarlarla gösterilir.'})));
+        h('span', {class: 'dot big', 'aria-hidden': 'true'}),
+        h('span', {class: 'led-live-t'}, h('span', {class: 'led-live-n', text: title}), h('span', {class: 'led-live-st', text: '—'})))));
+    p.prepend(h('section', {class: 'panel'}, h('h3', {text: 'LED durumu (canlı)'}), strip, h('p', {class: 'field-hint', id: 'led-live-note', text: LED_NOTE})));
     const grid = h('div', {class: 'led-groups'}, ...LED_GROUPS.map(([k, title, states, hint]) =>
-      h('div', {class: 'led-card'}, h('h4', {text: title}), ...states.map((s, j) => colorField(k + j, title, s, 'led')), h('small', {class: 'field-hint', text: hint}))));
-    p.append(h('section', {class: 'panel'}, h('h3', {text: 'LED renkleri'}), grid));
+      h('div', {class: 'led-card', title: hint}, h('h4', {text: title}),
+        h('div', {class: 'led-cols'}, ...states.map((s, j) => colorField(k + j, title, s, 'led'))))));
+    p.append(h('section', {class: 'panel'}, h('h3', {text: 'LED renkleri'}),
+      h('p', {class: 'field-hint', text: 'Sıra bütün SCADA cihazlarında sabittir: LED 1 Durum, LED 2 Ağ, LED 3 MQTT, LED 4 mDNS; LED 5 ısıtma (açık rezistans sayısı), LED 6 fan bu cihaza özgüdür. Yalnız LED 1 uyarı ve alarmda yanıp söner.'}),
+      grid));
   }
   function updateLedLive(d) {
     const box = $('#led-live');
@@ -2355,9 +2360,9 @@ builders.settings = sec => {
       dot.classList.toggle('off', !known || c === '#000000');
       dot.classList.toggle('blink', known && i === 0 && s > 0);
       setText($('.led-live-st', el), known ? g[2][s] : '—');
+      el.setAttribute('aria-label', g[1] + ': ' + (known ? g[2][s] + ', ' + colorName(c) : 'durum bilinmiyor'));
     });
-    setText($('#led-live-note'), d.led_ok === false ? 'LED sürücüsü başlatılamadı: şerit bağlantısını ve GPIO27’yi denetleyin.'
-      : 'WS2812B şerit, GPIO27. İlk dört LED bütün SCADA cihazlarında aynıdır; sonrakiler cihaza özgüdür. Renkler kayıtlı ayarlarla gösterilir.');
+    setText($('#led-live-note'), d.led_ok === false ? 'LED sürücüsü başlatılamadı: şerit bağlantısını ve GPIO27’yi denetleyin. Aşağıdaki görünüm yalnız cihazın seçtiği durumdur.' : LED_NOTE);
   }
   function updateMqLive(d) {
     const p = $('#mq-pill');

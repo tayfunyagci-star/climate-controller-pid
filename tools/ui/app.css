@@ -282,22 +282,33 @@ section.panel.red-zone{border:1px dashed var(--red);background:var(--zone-bg)}
 .dot.blink{animation:led-blink 1s steps(1,end) infinite}
 @keyframes led-blink{50%{opacity:.15}}
 @media (prefers-reduced-motion:reduce){.dot.blink{animation:none;outline:2px dashed var(--warn-line);outline-offset:2px}}
-.led-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
-.led-live{display:grid;justify-items:center;gap:3px;padding:8px 4px;border:1px solid var(--border-soft);border-radius:var(--r-control);text-align:center;font-size:var(--fs-2xs)}
-.led-live b{font:400 var(--fs-2xs) var(--font-mono)}
-.led-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
-.led-card{display:grid;gap:4px;align-content:start;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--r-control);min-width:0}
-.led-row summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:32px;padding:2px 6px;border-radius:var(--r-control);cursor:pointer;list-style:none;font-size:var(--fs-xs)}
+.led-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.led-live{display:flex;align-items:center;gap:10px;min-width:0;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--r-control)}
+.led-live-t{display:grid;min-width:0}
+.led-live-n{font:400 var(--fs-2xs)/1.4 var(--font-mono);color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.led-live-st{font:400 var(--fs-s)/1.35 var(--font-mono);color:var(--text-strong);overflow-wrap:anywhere}
+.led-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px;margin-top:10px}
+.led-card{padding:10px 12px 8px;border:1px solid var(--border-soft);border-radius:var(--r-control);min-width:0}
+.led-card h4{font:400 var(--fs-xs) var(--font-mono);color:var(--heading);text-transform:none;letter-spacing:0;padding-bottom:6px;border-bottom:1px dashed var(--border-soft);margin-bottom:6px}
+.led-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.led-row{position:relative;min-width:0}
+.led-row summary{display:grid;justify-items:center;align-content:start;gap:6px;min-height:44px;padding:8px 2px 6px;border-radius:var(--r-control);cursor:pointer;list-style:none;text-align:center}
 .led-row summary::-webkit-details-marker{display:none}
 .led-row summary:hover{background:var(--bg-input)}
-.led-row.changed summary{box-shadow:inset 3px 0 0 var(--warn-line)}
-.swatch-cur{display:flex;align-items:center;gap:6px;color:var(--text-dim)}
+.led-row[open] summary{background:var(--bg-input)}
+.led-row .led-state{font-size:var(--fs-2xs);text-transform:uppercase;letter-spacing:.03em;color:var(--text);line-height:1.3;min-height:2.6em;display:flex;align-items:center}
+.led-row .swatch-name{font:400 var(--fs-2xs) var(--font-mono);color:var(--text-dim);overflow-wrap:anywhere}
+.led-row.changed summary{box-shadow:inset 0 -3px 0 var(--warn-line)}
+.led-row .palette{position:absolute;top:100%;left:50%;transform:translateX(-50%);z-index:30;width:250px;max-width:calc(100vw - 48px);box-shadow:0 6px 18px #0004}
+.led-cols>.led-row:first-child .palette{left:0;transform:none}
+.led-cols>.led-row:last-child .palette{left:auto;right:0;transform:none}
 .palette{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;margin:4px 0 6px;padding:6px;border:1px solid var(--border-soft);border-radius:var(--r-control);background:var(--bg-panel)}
 .pal{display:flex;align-items:center;gap:6px;min-height:30px;padding:2px 4px;border-radius:var(--r-control);font-size:var(--fs-xs);cursor:pointer}
 .pal:hover{background:var(--bg-input)}
 .pal input{margin:0}
 .pal-close{grid-column:1/-1;justify-self:end;margin-top:4px}
-@media (max-width:600px){.led-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:900px){.led-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.led-groups{grid-template-columns:1fr}}
 .red-zone h3{color:var(--crit-text)}
 .btn-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 @media (max-width:600px){

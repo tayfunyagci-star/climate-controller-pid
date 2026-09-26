@@ -447,3 +447,9 @@ Kapsam: [WEB_SCADA_UI §13](WEB_SCADA_UI.md), [SECURITY §2](SECURITY.md).
 | UI (Playwright + sahte cihaz) | 401 → Oturum sayfası → giriş → Genel Bakış; OTA hazırlık yinelemesi + ilerlemeli yükleme; önceki akışlar |
 | Kartta: parola/oturum, PBKDF2 süresi (seri log `[AUTH] PBKDF2 … ms`), web OTA, fabrika ayarı | **Yapılmadı** |
 
+
+## F4.1 — Ayarlar › LED sayfası aile düzenine uyarlandı (27.09.2026)
+
+- Canlı şerit: 4 sütunlu kutular (renk noktası + “LED n · Ad” + durum); mobilde 2 sütun. Not: görünüm cihazın bildirdiği durum + kayıtlı renktir, WS2812B geri bildirimi yoktur.
+- Renkler: sabit sıra açıklaması; grup kartında her durum bir sütun (durum adı, renk noktası, renk adı); palet sütunun altında açılır (kenar sütunlarda ekrana hizalı). Grup ipuçları kart `title`'ına taşındı.
+- Yalnız UI (`60_settings.js`, `app.css`); API ve firmware değişmedi. Doğrulama: Playwright + sahte cihaz, 1280 px açık / 390 px koyu, palet açık; JS hatası yok. Kartta görsel kontrol yapılmadı.

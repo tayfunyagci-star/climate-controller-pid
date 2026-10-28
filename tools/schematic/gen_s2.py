@@ -72,6 +72,6 @@ def fan_branch(x, k, m, rs, cs, title):
     b.poly([(x + 20, 500), (x + 36, 520), (x + 36, YPE)], "PE"); b.dot(x + 36, YPE)
 fan_branch(880, "K1", "M1", "R11", "C6", "HF fanı")
 fan_branch(1060, "K2", "M2", "R12", "C7", "VF fanı")
-b.text(560, 762, "PE: metal pano, rezistans ve fan gövdeleri, U1 FG — tek PE barasına yıldız bağlantı.", "note")
+b.text(560, 762, "PE: metal pano, rezistans ve fan gövdeleri — tek PE barasına yıldız bağlantı.", "note")
 sheet2 = b.svg(W2, H2, "Sayfa 2: 230 V şebeke tarafı; RCBO, besleme sigortası, güvenlik termostatı, iki SSR ve rezistans, röle kontaklı iki fan, varistör ve RC snubber'lar", "s2")
 open('sheet2.svg', 'w').write(sheet2)

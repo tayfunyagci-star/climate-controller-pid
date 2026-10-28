@@ -1,8 +1,8 @@
 # CC-BOM-01 · Malzeme Listesi (BOM)
 
-Durum: rev A · 28.10.2026 · donanım F2.1 (ESP32 DevKit V1) + F2.4 (WS2812B durum şeridi) · şema [CC-SCH-01 rev B](CC-SCH-01.html) · pin haritası `src/app/pins.h`
+Durum: rev A · 28.10.2026 · donanım F2.1 (ESP32 DevKit V1) + F2.4 (WS2812B durum şeridi) · şema [CC-SCH-01 rev C](CC-SCH-01.html) · pin haritası `src/app/pins.h`
 
-Referanslar ve değerler CC-SCH-01 rev B'den alınmıştır. Şemada çizili olmayan WS2812B şerit katı (§1.2) `pins.h` ve `cc_ledstrip.h`'ye göre eklenmiştir; bu kattaki referanslar öneridir. Pano ve kurulum malzemeleri (§3) şema notlarından ve [SAFETY_DESIGN §5](../SAFETY_DESIGN.md)'ten türetilmiştir; adetleri pano yerleşimine göre değişir.
+Referanslar ve değerler CC-SCH-01 rev C ile aynıdır. WS2812B şerit katı (§1.2) `pins.h` ve `cc_ledstrip.h`'ye göre eklenmiş, referansları rev C'de şemaya işlenmiştir. Pano ve kurulum malzemeleri (§3) şema notlarından ve [SAFETY_DESIGN §5](../SAFETY_DESIGN.md)'ten türetilmiştir; adetleri pano yerleşimine göre değişir.
 
 > **Şebeke gerilimi.** §2 ve §3'teki parçalar 230 V tarafındadır. Kurulum ve enerjilendirme yetkili elektrikçi tarafından yapılır; RCBO, STB ve PE bağlantıları ölçülmeden enerji verilmez (checklist 10). ARM hattı olmadığından SSR kısa devre arızasını yalnız F3 sınırlar.
 
@@ -29,7 +29,7 @@ Referanslar ve değerler CC-SCH-01 rev B'den alınmıştır. Şemada çizili olm
 | J1 | 4 pin klemens / JST-XH | 1 VCC · 2 DATA · 3 NC · 4 GND | DHT22 kablosu | 1 |
 | J2, J3 | 2 pin klemens | 5.08 mm | SSR1/SSR2 girişi (A1+ / A2−) | 2 |
 
-### 1.2 WS2812B durum şeridi (F2.4; CC-SCH-01 rev B'de çizili değil)
+### 1.2 WS2812B durum şeridi (F2.4; CC-SCH-01 rev C'de çizildi)
 
 | Ref. | Parça / değer | Kılıf / anma | Görev | Adet |
 |---|---|---|---|---|
@@ -142,11 +142,13 @@ Sayfa 2'deki K1/K2, U3 modülünün röleleridir; ayrı parça değildir. M1 + M
 
 D1 üzerinde ≈ 0.4 V düşüm olur ve +5V hattı ≈ 4.6 V'ta kalır. WS2812B (3.5–5.3 V), SRD-05VDC (çekme ≤ 3.75 V) ve AMS1117 (3.3 V çıkış için ≈ 1 V düşüm payı) bu gerilimde çalışır. HIL-1'de VIN pini yük altında ölçülmelidir (≥ 4.4 V).
 
-## 7. CC-SCH-01 rev B ile farklar
+## 7. CC-SCH-01 ile farklar
 
-1. WS2812B şerit katı (LS1, U4, R13, C8–C10, J4) şemada çizili değil. F2.4'te `pins.h`'e eklendi; GPIO27 kullanılır. Şema rev C'de çizilmeli.
+Liste rev B'ye göre yazılmıştır; 1. ve 3. maddeler rev C'de (28.10.2026) giderildi.
+
+1. **Rev C'de giderildi.** WS2812B şerit katı (LS1, U4, R13, C8–C10, J4) rev B'de çizili değildi; F2.4'te `pins.h`'e eklenmişti (GPIO27). Rev C'de Sayfa 1'e çizildi; U2'ye GPIO27 bağlandı, pin tablosuna ve malzeme listesine eklendi.
 2. D1 (SS34) ve U4 (74AHCT1G125) yüzey montajlıdır. Kart delikli pertinaksa 1N5822 ve 74AHCT125N kullanılır.
-3. Sayfa 2'deki PE notu "U1 FG" diyor; ancak IRM-10-5 Class II modüldür ve FG pini yoktur. U1'in PE'ye bağlanacak ucu yok.
+3. **Rev C'de giderildi.** Rev B'de Sayfa 2'deki PE notu "U1 FG" diyordu; ancak IRM-10-5 Class II modüldür ve FG pini yoktur, U1'in PE'ye bağlanacak ucu yok. Rev C'de "U1 FG" nottan çıkarıldı.
 4. DHT22 kablo sınırı [HIL.md](../HIL.md)'de ≤ 20 m, şema notunda (3.3 V beslemede) ≤ 5 m olarak geçiyor. Bu listede şema notu esas alınmıştır.
 
 ## 8. v1 kapsamı dışında kalanlar

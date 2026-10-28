@@ -3,7 +3,9 @@ bom = [
  ("U1", "Mean Well IRM-10-5", "AC/DC 5 V 2 A, 10 W, çift izolasyonlu", "1"),
  ("U2", "ESP32 DevKit V1 (DOIT, 30 pin)", "ESP32-WROOM-32, 4 MB flash; kart üstü AMS1117 3.3 V, BOOT, mavi LED (GPIO2)", "1"),
  ("U3", "2 kanal 5 V röle modülü", "Optokuplörlü, JD-VCC jumper'lı (ör. SRD-05VDC-SL-C, 10 A 250 VAC kontak)", "1"),
+ ("U4", "74AHCT1G125", "SOT-23-5 seviye çevirici 3.3 → 5 V; OE → GND, VCC = +5V (delikli kartta 74AHCT125N)", "1"),
  ("B1", "DHT22 / AM2302", "Sıcaklık + nem, tek hat", "1"),
+ ("LS1", "WS2812B şerit, 6 LED", "5 V; 60 LED/m şeritten 6 LED'lik parça veya 6 WS2812B modül zinciri", "1"),
  ("Q1, Q2", "BC337-40", "NPN TO-92, 45 V 800 mA", "2"),
  ("D1", "SS34", "Schottky 3 A 40 V", "1"),
  ("R1", "4.7 kΩ", "¼ W %1 — DHT22 pull-up", "1"),
@@ -11,12 +13,16 @@ bom = [
  ("R3, R5", "1 kΩ", "¼ W — taban direnci", "2"),
  ("R4, R6", "10 kΩ", "¼ W — taban pull-down (boot güvenliği)", "2"),
  ("R7, R8", "10 kΩ", "¼ W — IN pull-up (boot güvenliği)", "2"),
+ ("R13", "330 Ω", "¼ W — şerit DIN seri direnci, şeride yakın", "1"),
  ("R9, R10 · LED1, LED2", "1 kΩ · 3 mm LED", "Yalnız HIL-1 test yükü", "2+2"),
  ("C1", "470 µF 16 V", "Elektrolitik, 105 °C", "1"),
  ("C2, C4, C5", "100 nF 50 V", "Seramik X7R", "3"),
  ("C3", "10 µF 16 V", "Seramik X5R veya tantal", "1"),
+ ("C8", "470 µF 16 V", "Elektrolitik — şerit girişinde +5V–GND", "1"),
+ ("C9, C10", "100 nF 50 V", "Seramik X7R — C9 şerit girişinde, C10 U4 VCC dekuplajı", "2"),
  ("J1", "4 pin klemens / JST-XH", "DHT22 kablosu", "1"),
  ("J2, J3", "2 pin klemens", "SSR giriş (A1+/A2−)", "2"),
+ ("J4", "3 pin klemens / JST-XH", "WS2812B şeridi (+5V · DIN · GND)", "1"),
  ("SSR1, SSR2", "Sıfır geçişli SSR 25 A", "Giriş 3–32 VDC, çıkış 24–380 VAC (ör. SSR-25DA) + soğutucu Rth ≤ 3 K/W", "2"),
  ("RV1, RV2", "S14K275", "Varistör 275 VAC — SSR çıkışına paralel", "2"),
  ("R11, R12 · C6, C7", "100 Ω 1 W · 100 nF X2 275 VAC", "Fan RC snubber", "2+2"),
@@ -36,6 +42,7 @@ pins = [
  ("GPIO26", "R2 SSR (Q2)", "Aktif-HIGH", "R6 10 kΩ pull-down"),
  ("GPIO32", "HF röle IN1", "Aktif-LOW", "R7 10 kΩ pull-up 3.3 V"),
  ("GPIO33", "VF röle IN2", "Aktif-LOW", "R8 10 kΩ pull-up 3.3 V"),
+ ("GPIO27", "WS2812B şerit DIN (U4 → R13 → LS1)", "3.3 V → 5 V (U4)", "Yalnız gösterge; güvenlik işlevi yok"),
  ("GPIO0", "BOOT butonu (kart)", "Aktif-LOW", "Yalnız boot sonrası giriş"),
  ("GPIO2", "Mavi LED (kart)", "Aktif-HIGH", "Strapping; boot sonrası sürülür"),
  ("GPIO13", "Boş", "—", "İleride HEATER_ARM"),
@@ -58,7 +65,7 @@ html = f'''<title>Kulübe İklim Devre Şeması</title>
  --paper:#10151b; --sheet:#151c24; --ink:#d8e0e7; --dim:#95a3b0; --rule:#34414d; --boxfill:#19222c;
  --L:#d8935f; --N:#86ade6; --PE:#7fc57d; --warn:#ff8a7e; --hil:#e0b35a; --heat:#3a2622; --ssr:#1d2a38; --head:#1b242d;}}
 body{{background:var(--paper);color:var(--ink);font:400 15px/1.55 var(--font);margin:0}}
-.wrap{{max-width:1260px;margin:0 auto;padding-inline:16px;padding-block:24px 48px;display:grid;gap:28px}}
+.wrap{{max-width:1260px;margin:0 auto;padding-inline:16px;padding-block:24px 48px;display:grid;grid-template-columns:minmax(0,1fr);gap:28px}}
 h1{{font:600 26px/1.2 var(--mono);letter-spacing:-.01em;margin:0;text-wrap:balance}}
 h2{{font:600 15px/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;margin:0 0 10px}}
 .lead{{max-width:70ch;color:var(--dim);margin:6px 0 0}}
@@ -84,6 +91,7 @@ svg .frame{{fill:none;stroke:var(--rule);stroke-width:1.2}}
 svg .hilbox{{fill:none;stroke:var(--hil);stroke-width:1.4;stroke-dasharray:6 4}}
 svg .cable{{stroke:var(--ink);stroke-width:1.6;stroke-dasharray:7 5;fill:none}}
 svg .mech{{stroke:var(--dim);stroke-width:1.4;stroke-dasharray:3 3;fill:none}}
+svg .ovl{{stroke:var(--ink);stroke-width:1;fill:none}}
 svg .L{{stroke:var(--L);stroke-width:2.4;fill:none}}
 svg .N{{stroke:var(--N);stroke-width:2.4;fill:none}}
 svg .PE{{stroke:var(--PE);stroke-width:2.2;stroke-dasharray:10 4;fill:none}}
@@ -105,8 +113,8 @@ th,td{{text-align:left;padding:7px 12px;border-bottom:1px solid var(--rule);vert
 th{{font:600 11px var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--dim);background:var(--head)}}
 td.mono{{font-family:var(--mono);font-weight:500;white-space:nowrap}}
 td.num{{font-family:var(--mono);text-align:right;font-variant-numeric:tabular-nums}}
-.two{{display:grid;grid-template-columns:1fr 1fr;gap:28px}}
-@media (max-width:900px){{.two{{grid-template-columns:1fr}}}}
+.two{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px}}
+@media (max-width:900px){{.two{{grid-template-columns:minmax(0,1fr)}}}}
 ol.notes{{margin:0;padding-left:22px;display:grid;gap:8px;max-width:95ch}}
 ol.notes li::marker{{font-family:var(--mono);color:var(--dim)}}
 code{{font-family:var(--mono);font-size:.92em}}
@@ -119,21 +127,21 @@ code{{font-family:var(--mono);font-size:.92em}}
 <div class="tb" role="group" aria-label="Çizim bilgileri">
  <div><b>Proje</b><span>Climate Controller PID</span></div>
  <div><b>Çizim</b><span>CC-SCH-01 · 2 sayfa</span></div>
- <div><b>Revizyon</b><span>B (F2.1 · DevKit V1)</span></div>
- <div><b>Tarih</b><span>25.09.2026</span></div>
+ <div><b>Revizyon</b><span>C (F2.4 · WS2812B şeridi)</span></div>
+ <div><b>Tarih</b><span>28.10.2026</span></div>
  <div><b>Durum</b><span>Tasarım — HIL öncesi</span></div>
 </div>
 <div class="alert"><strong>Şebeke gerilimi.</strong> Sayfa 2 bir tasarım çizimidir; kurulum ve enerjilendirme yetkili elektrikçi tarafından, RCBO, STB ve PE bağlantıları ölçülerek yapılmalıdır. ARM hattı olmadığından SSR kısa devre arızasını yalnız F3 güvenlik termostatı sınırlar.</div>
 <figure>
  <h2>Sayfa 1 — Güç ve mantık kartı</h2>
  <div class="sheetwrap">{s1}</div>
- <figcaption>ESP32 DevKit V1 kartı, 5 V besleme, DHT22 sensörü, iki SSR sürücü transistörü ve röle modülü. Tüm çıkış hatları reset anında dış dirençlerle pasif seviyede tutulur: SSR tabanları GND'ye, röle IN hatları 3.3 V'a çekilir.</figcaption>
+ <figcaption>ESP32 DevKit V1 kartı, 5 V besleme, DHT22 sensörü, iki SSR sürücü transistörü, röle modülü ve WS2812B durum şeridi (U4 seviye çevirici, J4). SSR ve röle hatları reset anında dış dirençlerle pasif seviyede tutulur: SSR tabanları GND'ye, röle IN hatları 3.3 V'a çekilir.</figcaption>
 </figure>
 <figure>
  <h2>Sayfa 2 — Şebeke tarafı</h2>
  <div class="sheetwrap">{s2}</div>
  <figcaption>230 V dağıtımı: RCBO sonrası üç dal. U1 beslemesi (F1), rezistans dalı (F2 → F3 STB → SSR1/SSR2 → E1/E2) ve fan dalı (F4 → K1/K2 → M1/M2). SSR çıkışlarında varistör, fanlarda RC snubber var.</figcaption>
- <div class="legend" style="margin-top:10px"><span><i style="border-color:var(--L)"></i>L faz</span><span><i style="border-color:var(--N)"></i>N nötr</span><span><i style="border-top-style:dashed;border-color:var(--PE)"></i>PE koruma</span><span><i style="border-top-style:dashed;border-color:var(--ink)"></i>Sensör kablosu</span></div>
+ <div class="legend" style="margin-top:10px"><span><i style="border-color:var(--L)"></i>L faz</span><span><i style="border-color:var(--N)"></i>N nötr</span><span><i style="border-top-style:dashed;border-color:var(--PE)"></i>PE koruma</span><span><i style="border-top-style:dashed;border-color:var(--ink)"></i>Sensör / şerit kablosu</span></div>
 </figure>
 <section class="two">
  <div>
@@ -150,6 +158,7 @@ code{{font-family:var(--mono);font-size:.92em}}
    <li><b>Kablo kesitleri:</b> Giriş ve rezistans dalı ≥ 1.5 mm² (C10/C16 koruma ile uyumlu), fan dalı ≥ 0.75 mm², SELV 0.25–0.5 mm².</li>
    <li><b>USB ile çalışma:</b> Programlama sırasında şebeke bağlıysa D1 kart 5V hattından PSU'ya geri beslemeyi engeller. İlk testlerde (HIL-1) şebeke bağlı olmaz, kart USB'den beslenir. DevKit V1'de 5 V girişi VIN pinidir.</li>
    <li><b>STB (F3):</b> Rezistansların üstünde, kulübe havasını değil ısıtıcı çıkış havasını ölçecek şekilde; eşik 70 °C çevresi, sahada ayarlanır. Açtığında elle resetlenmeden rezistans enerjilenmez.</li>
+   <li><b>WS2812B şeridi (LS1):</b> R13, C8 ve C9 şerit girişine, şeridin +5V/DIN/GND pedlerine yakın takılır. U4 önerilir; takılmazsa GPIO27 doğrudan J4 DIN'e bağlanır, ancak 3.3 V veri seviyesi WS2812B'nin VIH = 0.7 · VDD sınırındadır. Şerit en kötü durumda 360 mA çeker (6 × 60 mA, beyaz %100); varsayılan %20 parlaklıkta ≈ 72 mA.</li>
   </ol>
  </div>
 </section>

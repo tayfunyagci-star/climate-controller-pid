@@ -2,6 +2,8 @@
 
 Durum: rev A · 28.10.2026 · donanım F2.1 (ESP32 DevKit V1) + F2.4 (WS2812B durum şeridi) · şema [CC-SCH-01 rev B](CC-SCH-01.html) · pin haritası `src/app/pins.h`
 
+Excel sürümü: [CC-BOM-01.xlsx](CC-BOM-01.xlsx). Bu belgeyle aynı içeriktedir; ayrıca fiyat, tedarikçi ve durum alanlı sipariş listesi ile formüllü güç bütçesi içerir. `python3 tools/bom/build_xlsx.py` ile üretilir; bu belge değişince betikteki satırlar da güncellenir.
+
 Referanslar ve değerler CC-SCH-01 rev B'den alınmıştır. Şemada çizili olmayan WS2812B şerit katı (§1.2) `pins.h` ve `cc_ledstrip.h`'ye göre eklenmiştir; bu kattaki referanslar öneridir. Pano ve kurulum malzemeleri (§3) şema notlarından ve [SAFETY_DESIGN §5](../SAFETY_DESIGN.md)'ten türetilmiştir; adetleri pano yerleşimine göre değişir.
 
 > **Şebeke gerilimi.** §2 ve §3'teki parçalar 230 V tarafındadır. Kurulum ve enerjilendirme yetkili elektrikçi tarafından yapılır; RCBO, STB ve PE bağlantıları ölçülmeden enerji verilmez (checklist 10). ARM hattı olmadığından SSR kısa devre arızasını yalnız F3 sınırlar.

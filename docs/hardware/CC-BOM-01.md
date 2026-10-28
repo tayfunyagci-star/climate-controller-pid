@@ -36,14 +36,14 @@ Referanslar ve değerler CC-SCH-01 rev B'den alınmıştır. Şemada çizili olm
 | Ref. | Parça / değer | Kılıf / anma | Görev | Adet |
 |---|---|---|---|---|
 | LS1 | WS2812B şerit, 6 LED | 5 V; 60 LED/m şeritten 6 LED'lik parça veya 6 adet WS2812B modül zinciri | LED1 durum · LED2 ağ · LED3 MQTT · LED4 mDNS · LED5 ısıtma · LED6 fan | 1 |
-| U4 | 74AHCT1G125 | SOT-23-5. Delikli kartta eşdeğer: 74AHCT125N (DIP-14) | 3.3 V → 5 V seviye çevirici (önerilir); OE → GND, VCC = +5V | 1 |
+| U4 | 74AHCT1G125 | SOT-23-5. Delikli kartta eşdeğer: 74HCT125N veya 74AHCT125N (DIP-14); 74HC125 olmaz | 3.3 V → 5 V seviye çevirici (önerilir); OE → GND, VCC = +5V | 1 |
 | R13 | 330 Ω | ¼ W | Veri hattı seri direnci: U4 çıkışı (U4 yoksa GPIO27) → R13 → DIN; şeride yakın | 1 |
 | C8 | 470 µF 16 V | Elektrolitik | Şerit girişinde +5V–GND | 1 |
 | C9 | 100 nF 50 V | Seramik X7R | Şerit girişinde +5V–GND | 1 |
 | C10 | 100 nF 50 V | Seramik X7R | U4 VCC dekuplajı (yalnız U4 varsa) | 1 |
 | J4 | 3 pin klemens / JST-XH | +5V · DIN · GND | Şerit bağlantısı | 1 |
 
-U4 olmadan da çoğu şerit çalışır, ancak 3.3 V veri seviyesi WS2812B'nin VIH = 0.7 · VDD sınırındadır (`pins.h`). 74AHCT125N kullanılırsa kullanılmayan üç kapının A girişleri GND'ye, OE'leri +5V'a bağlanır.
+U4 olmadan da çoğu şerit çalışır, ancak 3.3 V veri seviyesi WS2812B'nin VIH = 0.7 · VDD sınırındadır (`pins.h`). Delikli kartta 74HCT125N veya 74AHCT125N kullanılır; ikisinin bacak düzeni aynıdır, HCT daha kolay bulunur. Kullanılmayan üç kapının A girişleri GND'ye, OE'leri +5V'a bağlanır. T'siz 74HC125 olmaz: 5 V'ta giriş eşiği 3.5 V'tur, 3.3 V'u güvenilir okumaz. HCT/AHCT'de eşik 2.0 V'tur ve +5V hattının ≈ 4.6 V olması (4.5–5.5 V aralığında) sorun değildir.
 
 ### 1.3 Kart montajı
 
@@ -120,7 +120,7 @@ Sayfa 2'deki K1/K2, U3 modülünün röleleridir; ayrı parça değildir. M1 + M
 | | 100 nF X2 275 VAC | C6, C7 | 2 |
 | Yarı iletken | BC337-40 | Q1, Q2 | 2 |
 | | SS34 (veya 1N5822) | D1 | 1 |
-| | 74AHCT1G125 (veya 74AHCT125N) | U4 | 1 |
+| | 74AHCT1G125 (veya 74HCT125N / 74AHCT125N) | U4 | 1 |
 | | S14K275 | RV1, RV2 | 2 |
 | Klemens | 2 pin | J2, J3 | 2 |
 | | 3 pin | J4 | 1 |
@@ -147,7 +147,7 @@ D1 üzerinde ≈ 0.4 V düşüm olur ve +5V hattı ≈ 4.6 V'ta kalır. WS2812B 
 ## 7. CC-SCH-01 rev B ile farklar
 
 1. WS2812B şerit katı (LS1, U4, R13, C8–C10, J4) şemada çizili değil. F2.4'te `pins.h`'e eklendi; GPIO27 kullanılır. Şema rev C'de çizilmeli.
-2. D1 (SS34) ve U4 (74AHCT1G125) yüzey montajlıdır. Kart delikli pertinaksa 1N5822 ve 74AHCT125N kullanılır.
+2. D1 (SS34) ve U4 (74AHCT1G125) yüzey montajlıdır. Kart delikli pertinaksa 1N5822 ve 74HCT125N (veya 74AHCT125N) kullanılır.
 3. Sayfa 2'deki PE notu "U1 FG" diyor; ancak IRM-10-5 Class II modüldür ve FG pini yoktur. U1'in PE'ye bağlanacak ucu yok.
 4. DHT22 kablo sınırı [HIL.md](../HIL.md)'de ≤ 20 m, şema notunda (3.3 V beslemede) ≤ 5 m olarak geçiyor. Bu listede şema notu esas alınmıştır.
 
